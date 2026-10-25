@@ -50,6 +50,10 @@ La mayoría de los proyectos residenciales de riego utilizan transistores bipola
 ├── platformio.ini                           # Configuración multi-target (Nano AVR y ESP32)
 ├── LICENSE                                  # Licencia MIT de código abierto
 │
+├── include/                                 # Dominio desacoplado de hardware (C++ puro)
+│   ├── IrrigationController.h               # FSM centralizada de riego, reglas y watchdogs
+│   └── SensorValidator.h                    # Validación de calibración y límites físicos ADC
+│
 ├── docs/                                    # Documentación técnica formal
 │   ├── 01_ARQUITECTURA_DEL_SISTEMA.md       # Arquitectura en capas y máquina de estados finita
 │   ├── 02_LISTA_DE_MATERIALES_Y_COSTOS.md   # BOM detallado, precios y proveedores homologados
@@ -63,13 +67,16 @@ La mayoría de los proyectos residenciales de riego utilizan transistores bipola
 │       ├── ADR-002-NON-BLOCKING-FSM.md      # Máquina de estados cooperativa no bloqueante
 │       └── ADR-003-MODULAR-FIRMWARE-ARCHITECTURE.md # Tipado estricto y desacoplamiento
 │
-└── src/                                     # Código fuente (Firmwares)
-    ├── arduino_nano_original/
-    │   └── regador_nano.ino                 # Firmware de referencia (réplica Wirecora)
-    ├── arduino_nano_mejorado/
-    │   └── regador_nano_pro.ino             # Firmware industrial PRO (Arduino Nano V3)
-    └── esp32_mejorado_wifi/
-        └── regador_esp32.ino                # Firmware IoT con Web Dashboard y WiFi (ESP32)
+├── src/                                     # Código fuente (Firmwares específicos de placa)
+│   ├── arduino_nano_original/
+│   │   └── regador_nano.ino                 # Firmware de referencia (réplica Wirecora)
+│   ├── arduino_nano_mejorado/
+│   │   └── regador_nano_pro.cpp             # Firmware industrial PRO (Arduino Nano V3)
+│   └── esp32_mejorado_wifi/
+│       └── regador_esp32.cpp                # Firmware IoT con Web Dashboard y WiFi (ESP32)
+│
+└── tests/                                   # Suite de pruebas automatizadas
+    └── test_irrigation_suite.py             # 11 pruebas unitarias reproducibles
 ```
 
 ---
@@ -159,6 +166,15 @@ pio device monitor -b 9600
    - `Adafruit GFX Library`
 3. Selecciona la placa **Arduino Nano** y el procesador **ATmega328P** (o *Old Bootloader* según corresponda).
 4. Compila y carga el sketch.
+
+### Ejecución de Pruebas Automatizadas
+
+El proyecto cuenta con una suite de pruebas automatizadas independiente de hardware para verificar el modelo de dominio:
+
+```bash
+# Ejecutar suite de pruebas con Python 3
+py tests/test_irrigation_suite.py -v
+```
 
 ---
 

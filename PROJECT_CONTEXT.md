@@ -75,3 +75,10 @@ El firmware adopta una **Arquitectura en Capas (Layered Embedded Architecture)**
 - [x] **v0.1.0:** Ingeniería inversa del video de Wirecora y extracción del esquema original.
 - [x] **v0.2.0:** Rediseño con MOSFET de nivel lógico, sensor de flotador, buzzer suave y botón manual.
 - [x] **v1.0.0:** Formalización de estándares de ingeniería internacional, estructura modular en capas, ADRs, FMEA, archivo de contexto vivo (`PROJECT_CONTEXT.md`) y configuración multiplataforma PlatformIO.
+- [x] **v1.1.0 (Auditoría Técnica y Corrección de Defectos):**
+  - Corrección de `platformio.ini` (aislamiento explícito de entornos con `build_src_filter`).
+  - Creación de dominio centralizado desacoplado de hardware: `include/IrrigationController.h` y `include/SensorValidator.h`.
+  - Eliminación total de llamadas bloqueantes `delay()` en el firmware ESP32.
+  - Aseguramiento de API REST: transición de GET inseguro a POST con token de autorización en `/api/water` y rate-limiting de 5 segundos.
+  - Creación de suite automatizada de 11 pruebas unitarias (`tests/test_irrigation_suite.py`) cubriendo histéresis, calibración, desbordamiento de temporizadores, idempotencia de parada y tolerancia a fallos.
+  - Actualización rigurosa de FMEA (IEC 60812) diferenciando mitigaciones probadas, pendientes y limitaciones físicas no mitigables por software.

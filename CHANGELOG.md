@@ -7,6 +7,24 @@ y este proyecto se adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
 ---
 
+## [1.1.0] - 2026-10-25
+
+### Corregido
+- **PlatformIO Multi-Entorno:** Corrección del parámetro global `src_dir` que obligaba a `[env:esp32dev]` a compilar el firmware del Nano. Implementación de `build_src_filter` con aislamiento estricto por placa.
+- **Bloqueos de CPU en ESP32:** Eliminación de llamadas `delay(3000)` en el endpoint web y en el botón físico, así como de esperas en bucles de muestreo. Reemplazo por máquina de estados cooperativa no bloqueante.
+- **Vulnerabilidad en Servidor Web:** Reemplazo del endpoint `GET /regar` por `POST /api/water`, incorporando autorización obligatoria por token (`API_AUTH_TOKEN`) y enfriamiento mínimo (cooldown) de 5 segundos.
+- **Control Fragmentado de la Bomba:** Centralización total de solicitudes de riego a través de la clase de dominio `IrrigationController`, garantizando que ninguna interfaz física o remota evada los enclavamientos de seguridad.
+- **Validación de Calibración y Sensores:** Detección de calibraciones inválidas (prevención de división por cero en `map()`) y verificación de integridad física del sensor analógico (detección de desconexión y cortocircuito a masa).
+
+### Añadido
+- **Módulos de Dominio Puro:**
+  - `include/SensorValidator.h`: Funciones de validación de límites físicos de ADC, coherencia matemática y cálculo de humedad.
+  - `include/IrrigationController.h`: FSM centralizada con estados `IDLE`, `VALIDATING`, `WATERING`, `STOPPED`, `FAULT` y `RECOVERY`.
+- **Suite de Pruebas Automatizadas:** `tests/test_irrigation_suite.py` con 11 casos de prueba cubriendo histéresis, calibración, desbordamiento de `millis()`, idempotencia de parada y tolerancia a fallos.
+- **FMEA Auditado:** Actualización de `docs/FMEA_SEGURIDAD_Y_RIESGOS.md` bajo norma IEC 60812 con clasificación explícita entre mitigaciones probadas, pendientes de banco y limitaciones físicas fuera del microcontrolador.
+
+---
+
 ## [1.0.0] - 2026-10-25
 
 ### Añadido

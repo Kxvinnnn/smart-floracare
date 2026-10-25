@@ -31,17 +31,33 @@ Una característica fundamental del sensor capacitivo v1.2 es que su salida anal
 
 ---
 
-## 3. Fórmula de Conversión Matemática
+## 3. Fórmula de Conversión Matemática y Validación Defensiva
 
-En el código en C++, la conversión de la lectura cruda `ADC` a porcentaje de humedad (`0%` a `100%`) se realiza mediante:
+En versiones previas se utilizaba una simple función `map()` sin comprobación previa. En la arquitectura actual (`SensorValidator`), la conversión se efectúa mediante una rutina defensiva que previene divisiones por cero y detecta anomalías de hardware:
 
 ```cpp
-int porcentajeHumedad = map(lecturaADC, VAL_AIRE, VAL_AGUA, 0, 100);
-porcentajeHumedad = constrain(porcentajeHumedad, 0, 100);
+// Verificación matemática de la calibración
+if (prof.airRaw <= prof.waterRaw || (prof.airRaw - prof.waterRaw) < prof.minDelta) {
+    return SensorHealth::INVALID_CALIBRATION;
+}
+
+// Detección de fallos físicos en el cableado
+if (rawAdc < prof.minPhysLimit) {
+    return SensorHealth::SHORT_CIRCUIT_OR_LOW; // Posible cortocircuito a GND
+}
+if (rawAdc > prof.maxPhysLimit) {
+    return SensorHealth::DISCONNECTED_OR_HIGH; // Posible desconexión / cable suelto
+}
+
+// Conversión segura con protección de rango
+int32_t deltaSpan = static_cast<int32_t>(prof.airRaw) - static_cast<int32_t>(prof.waterRaw);
+int32_t diff = static_cast<int32_t>(prof.airRaw) - static_cast<int32_t>(rawAdc);
+int32_t percent = (diff * 100) / deltaSpan;
+outPercent = static_cast<uint8_t>(constrain(percent, 0, 100));
 ```
 
-> [!NOTE]
-> Observa que `VAL_AIRE` se coloca antes que `VAL_AGUA` en la función `map()`. Como `VAL_AIRE > VAL_AGUA`, la función invierte automáticamente la escala para que más agua signifique mayor porcentaje.
+> [!WARNING] Protección contra Fallos de Sensor
+> Si un sensor se desconecta, el valor ADC puede flotar cerca del voltaje de referencia ($1023$ en Nano, $4095$ en ESP32). Un algoritmo ingenuo calcularía un porcentaje negativo que, tras aplicar `constrain()`, se convertiría en $0\%$ (suelo completamente seco), provocando que la bomba se active innecesariamente hasta inundar la planta. Con `SensorValidator`, este caso se identifica como `DISCONNECTED_OR_HIGH` y el controlador **se niega a regar**, entrando en modo de alerta segura.
 
 ---
 
