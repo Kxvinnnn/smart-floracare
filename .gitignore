@@ -31,3 +31,8 @@ Desktop.ini
 # Logs y Temporales
 *.log
 tmp/
+
+# Credenciales y Secretos de Hardware
+include/Credentials.h
+config/credentials.h
+credentials.h

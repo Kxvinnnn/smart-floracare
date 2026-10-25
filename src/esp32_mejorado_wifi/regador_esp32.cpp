@@ -16,19 +16,29 @@
 #include "SensorValidator.h"
 #include "IrrigationController.h"
 
+// Inclusión segura de credenciales locales (ignorado por Git si existe)
+#if __has_include("Credentials.h")
+  #include "Credentials.h"
+#endif
+
 using namespace FloraCare;
 
 // --- CONFIGURACIÓN WIFI Y SEGURIDAD HTTP ---
-#ifndef WIFI_SSID
-#define WIFI_SSID "CONFIGURA_TU_RED"
+#ifndef SECRET_WIFI_SSID
+  #define SECRET_WIFI_SSID "FLORACARE_SETUP_AP"
 #endif
 
-#ifndef WIFI_PASS
-#define WIFI_PASS "CONFIGURA_TU_PASSWORD"
+#ifndef SECRET_WIFI_PASS
+  #define SECRET_WIFI_PASS "plantas123"
 #endif
 
-// Token de autorización para la API REST (Previene accesos no autorizados en LAN)
-static const char* API_AUTH_TOKEN = "FLORACARE_SECRET_TOKEN_2026";
+#ifndef SECRET_API_TOKEN
+  #define SECRET_API_TOKEN "FLORACARE_DEFAULT_TOKEN_CHANGE_ME"
+#endif
+
+static const char* WIFI_SSID      = SECRET_WIFI_SSID;
+static const char* WIFI_PASS      = SECRET_WIFI_PASS;
+static const char* API_AUTH_TOKEN = SECRET_API_TOKEN;
 
 static WebServer server(80);
 
