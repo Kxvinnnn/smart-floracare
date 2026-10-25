@@ -1,0 +1,33 @@
+# =============================================================================
+# GITIGNORE - Smart FloraCare
+# =============================================================================
+
+# PlatformIO
+.pio
+.pioenvs
+.piolibdeps
+
+# IDEs y Editores
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.bak
+
+# Compilación y Binarios
+*.hex
+*.elf
+*.bin
+*.o
+*.obj
+*.d
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs y Temporales
+*.log
+tmp/
