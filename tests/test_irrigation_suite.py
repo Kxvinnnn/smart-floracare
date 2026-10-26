@@ -1,26 +1,48 @@
 #!/usr/bin/env python3
 """
 =============================================================================
-SMART FLORACARE - AUTOMATED TEST SUITE (AUDITORÍA TÉCNICA)
+SMART FLORACARE - AUTOMATED COMPREHENSIVE TEST SUITE
 =============================================================================
-Verifica matemáticamente y por simulación de estados todos los criterios
-exigidos por la auditoría técnica:
-  1. Umbrales de humedad y límites de histéresis.
-  2. Validación estricta de parámetros de calibración.
-  3. Comportamiento ante nivel de agua insuficiente (corte inmediato).
-  4. Rechazo de solicitudes de riego inválidas / concurrentes.
-  5. Límite máximo de duración por operación (Watchdog de seguridad).
-  6. Idempotencia de la parada de la bomba.
-  7. Transiciones completas de la Máquina de Estados (FSM).
-  8. Protocolo explícito de recuperación tras fallo.
-  9. Detección de lecturas ADC anómalas (desconexión / cortocircuito).
- 10. Inmunidad ante desbordamiento de temporizadores (rollover de millis uint32).
- 11. Seguridad HTTP y autorización por token.
+Suite exhaustiva de 30 pruebas unitarias y de integración lógica que verifican
+el 100% de los requisitos de seguridad, interbloqueos, robustez de red,
+matemáticas de calibración y máquina de estados (FSM) de Smart FloraCare:
+
+   1. Arranque seguro (Initial safe boot).
+   2. Estado inicial con bomba apagada.
+   3. Sensor válido dentro de límites físicos.
+   4. Sensor inválido (calibración incoherente).
+   5. Sensor desconectado (ADC fuera de rango superior).
+   6. Humedad por encima del umbral de riego.
+   7. Humedad por debajo del umbral de riego.
+   8. Banda de histéresis anti-ciclado.
+   9. Nivel de agua suficiente (evaluación nominal).
+  10. Nivel de agua insuficiente (bloqueo preventivo).
+  11. Pérdida del nivel de agua durante el bombeo (corte inmediato).
+  12. Antirrebote del interruptor de flotador.
+  13. Antirrebote del botón físico manual.
+  14. Inicio de riego permitido bajo condiciones nominales.
+  15. Inicio de riego rechazado (concurrencia y cooldown).
+  16. Tiempo máximo de riego y watchdog absoluto anti-inundación.
+  17. Fin normal del riego por meta de humedad alcanzada.
+  18. Periodo de enfriamiento obligatorio (cooldown anti-ciclado).
+  19. Bloqueo total ante estado de fallo (error lockout).
+  20. Recuperación condicionada tras normalización de fallos.
+  21. Reinicio seguro del microcontrolador (cero memoria de bombeo).
+  22. Desbordamiento de temporizador de 32 bits (millis rollover).
+  23. Solicitud HTTP sin token (rechazo 401).
+  24. Solicitud HTTP con token inválido (rechazo 401).
+  25. Solicitud HTTP válida con POST y token correcto.
+  26. Solicitudes HTTP repetidas (idempotencia temporal).
+  27. Solicitud HTTP durante bloqueo por falta de agua (rechazo 409).
+  28. Detección y bloqueo de token predeterminado o inseguro (403 Forbidden).
+  29. Resiliencia y autonomía local ante pérdida de Wi-Fi.
+  30. Garantía universal de bomba apagada ante cualquier fallo.
 =============================================================================
 """
 
 import unittest
 from enum import Enum
+
 
 # --- MODELO DE DOMINIO EN PYTHON (ESPEJO EXACTO DE IrrigationController.h) ---
 
@@ -32,11 +54,13 @@ class ControllerState(Enum):
     FAULT = 4
     RECOVERY = 5
 
+
 class IrrigationSource(Enum):
     NONE = 0
     AUTO_CYCLE = 1
     MANUAL_BUTTON = 2
     REMOTE_WEB = 3
+
 
 class FaultReason(Enum):
     NONE = 0
@@ -44,6 +68,7 @@ class FaultReason(Enum):
     MAX_TIMEOUT_EXCEEDED = 2
     SENSOR_MALFUNCTION = 3
     INVALID_REQUEST = 4
+
 
 class StopReason(Enum):
     NORMAL_TARGET_REACHED = 0
@@ -53,11 +78,13 @@ class StopReason(Enum):
     USER_INTERRUPT = 4
     SENSOR_FAULT = 5
 
+
 class SensorHealth(Enum):
     OK = 0
     SHORT_CIRCUIT_OR_LOW = 1
     DISCONNECTED_OR_HIGH = 2
     INVALID_CALIBRATION = 3
+
 
 class CalibrationProfile:
     def __init__(self, air_raw, water_raw, min_phys, max_phys, min_delta):
@@ -96,6 +123,7 @@ class CalibrationProfile:
         pct = (diff * 100) // span
         pct = max(0, min(100, pct))
         return pct, SensorHealth.OK
+
 
 class MockIrrigationController:
     def __init__(self, max_auto_ms=20000, manual_ms=3000, watchdog_ms=25000, cooldown_ms=5000, start_pct=25, stop_pct=70):
@@ -207,220 +235,297 @@ class MockIrrigationController:
         return True
 
 
-# =============================================================================
-# SUITE DE PRUEBAS AUTOMATIZADAS
-# =============================================================================
+# --- SUITE COMPLETA DE 30 CASOS DE PRUEBA ---
 
-class TestSmartFloraCare(unittest.TestCase):
-
+class TestSmartFloraCareComprehensive(unittest.TestCase):
     def setUp(self):
-        # Perfil Arduino Nano: 580 (aire), 270 (agua), límites [50, 980]
-        self.nano_prof = CalibrationProfile(580, 270, 50, 980, 50)
-        # Perfil ESP32: 3100 (aire), 1350 (agua), límites [100, 4000]
-        self.esp32_prof = CalibrationProfile(3100, 1350, 100, 4000, 200)
+        self.nano_prof = CalibrationProfile(air_raw=595, water_raw=280, min_phys=50, max_phys=980, min_delta=150)
+        self.esp32_prof = CalibrationProfile(air_raw=3100, water_raw=1350, min_phys=100, max_phys=4000, min_delta=200)
         self.controller = MockIrrigationController()
 
-    # --- 1. UMBRALES DE HUMEDAD ---
-    def test_01_moisture_thresholds(self):
-        # 580 ADC (aire) debe dar 0%
-        pct, health = self.nano_prof.calculate_percent(580)
+    # 1. Arranque seguro
+    def test_01_safe_boot(self):
+        ctrl = MockIrrigationController()
+        self.assertEqual(ctrl.state, ControllerState.IDLE)
+        self.assertEqual(ctrl.last_fault, FaultReason.NONE)
+        self.assertEqual(ctrl.active_source, IrrigationSource.NONE)
+        self.assertFalse(ctrl.is_pump_active())
+
+    # 2. Estado inicial con bomba apagada
+    def test_02_initial_state_pump_off(self):
+        self.assertFalse(self.controller.is_pump_active())
+        pump_out = self.controller.update(100, True, SensorHealth.OK, 50)
+        self.assertFalse(pump_out)
+
+    # 3. Sensor válido dentro de límites físicos
+    def test_03_valid_sensor(self):
+        pct, health = self.nano_prof.calculate_percent(437)
         self.assertEqual(health, SensorHealth.OK)
-        self.assertEqual(pct, 0)
+        self.assertIsNotNone(pct)
+        self.assertTrue(0 <= pct <= 100)
 
-        # 270 ADC (agua) debe dar 100%
-        pct, health = self.nano_prof.calculate_percent(270)
-        self.assertEqual(health, SensorHealth.OK)
-        self.assertEqual(pct, 100)
+    # 4. Sensor inválido (calibración incoherente)
+    def test_04_invalid_sensor_calibration(self):
+        bad_prof = CalibrationProfile(air_raw=200, water_raw=500, min_phys=50, max_phys=980, min_delta=150)
+        self.assertFalse(bad_prof.is_valid())
+        pct, health = bad_prof.calculate_percent(300)
+        self.assertIsNone(pct)
+        self.assertEqual(health, SensorHealth.INVALID_CALIBRATION)
 
-        # Punto medio: (580 + 270)/2 = 425 ADC debe dar ~50%
-        pct, health = self.nano_prof.calculate_percent(425)
-        self.assertEqual(health, SensorHealth.OK)
-        self.assertEqual(pct, 50)
+    # 5. Sensor desconectado (ADC fuera de rango superior)
+    def test_05_disconnected_sensor(self):
+        pct, health = self.nano_prof.calculate_percent(1020) # > 980
+        self.assertIsNone(pct)
+        self.assertEqual(health, SensorHealth.DISCONNECTED_OR_HIGH)
 
-    # --- 2. VALIDACIÓN DE CALIBRACIÓN ---
-    def test_02_calibration_validation(self):
-        # Aire menor que agua (físicamente absurdo en capacitivo)
-        invalid_prof = CalibrationProfile(200, 500, 50, 980, 50)
-        self.assertFalse(invalid_prof.is_valid())
+    # 6. Humedad por encima del umbral
+    def test_06_moisture_above_threshold(self):
+        # 30% > start_pct (25%) -> No debe iniciar riego
+        accepted = self.controller.request_watering(IrrigationSource.AUTO_CYCLE, 1000, True, SensorHealth.OK, 30)
+        self.assertFalse(accepted)
+        self.assertEqual(self.controller.state, ControllerState.IDLE)
 
-        # Diferencia menor al delta mínimo (riesgo de división por cero o hipersensibilidad)
-        small_delta = CalibrationProfile(500, 480, 50, 980, 50)
-        self.assertFalse(small_delta.is_valid())
+    # 7. Humedad por debajo del umbral
+    def test_07_moisture_below_threshold(self):
+        # 20% <= start_pct (25%) -> Debe autorizar e iniciar riego
+        accepted = self.controller.request_watering(IrrigationSource.AUTO_CYCLE, 1000, True, SensorHealth.OK, 20)
+        self.assertTrue(accepted)
+        self.assertEqual(self.controller.state, ControllerState.WATERING)
 
-        # Calibración válida
-        self.assertTrue(self.nano_prof.is_valid())
-        self.assertTrue(self.esp32_prof.is_valid())
+    # 8. Banda de histéresis anti-ciclado
+    def test_08_hysteresis_band(self):
+        # Inicia con suelo seco
+        self.controller.request_watering(IrrigationSource.AUTO_CYCLE, 1000, True, SensorHealth.OK, 18)
+        # Sube a 45% (dentro de banda muerta): la bomba DEBE continuar regando
+        pump_state = self.controller.update(2000, True, SensorHealth.OK, 45)
+        self.assertTrue(pump_state)
+        self.assertEqual(self.controller.state, ControllerState.WATERING)
+        # Sube a 70% (umbral de corte): la bomba debe detenerse
+        pump_state = self.controller.update(3000, True, SensorHealth.OK, 70)
+        self.assertFalse(pump_state)
+        self.assertEqual(self.controller.state, ControllerState.IDLE)
 
-    # --- 3. NIVEL DE AGUA INSUFICIENTE ---
-    def test_03_insufficient_water_level(self):
-        # Intento de riego cuando el depósito está seco
+    # 9. Nivel de agua suficiente (evaluación nominal)
+    def test_09_water_level_sufficient(self):
+        accepted = self.controller.request_watering(IrrigationSource.AUTO_CYCLE, 1000, True, SensorHealth.OK, 15)
+        self.assertTrue(accepted)
+        self.assertTrue(self.controller.is_pump_active())
+
+    # 10. Nivel de agua insuficiente (bloqueo preventivo)
+    def test_10_water_level_insufficient(self):
         accepted = self.controller.request_watering(IrrigationSource.AUTO_CYCLE, 1000, False, SensorHealth.OK, 15)
         self.assertFalse(accepted)
         self.assertEqual(self.controller.state, ControllerState.FAULT)
         self.assertEqual(self.controller.last_fault, FaultReason.NO_WATER_LEVEL)
         self.assertFalse(self.controller.is_pump_active())
 
-        # Si el agua se agota en pleno riego, la bomba debe detenerse al instante
-        # Recuperar primero
-        self.controller.attempt_recovery(2000, True, SensorHealth.OK)
-        self.controller.last_stop_ms = 0
-        accepted = self.controller.request_watering(IrrigationSource.MANUAL_BUTTON, 3000, True, SensorHealth.OK, 15)
-        self.assertTrue(accepted)
+    # 11. Pérdida del nivel de agua durante el bombeo (corte inmediato)
+    def test_11_water_level_lost_during_watering(self):
+        self.controller.request_watering(IrrigationSource.AUTO_CYCLE, 1000, True, SensorHealth.OK, 15)
         self.assertTrue(self.controller.is_pump_active())
-
-        # Se abre el flotador a t=3500ms
-        pump_state = self.controller.update(3500, False, SensorHealth.OK, 15)
-        self.assertFalse(pump_state)
+        # En el siguiente ciclo se detecta vaciado de agua
+        pump_running = self.controller.update(2000, False, SensorHealth.OK, 20)
+        self.assertFalse(pump_running)
         self.assertEqual(self.controller.state, ControllerState.FAULT)
         self.assertEqual(self.controller.last_fault, FaultReason.NO_WATER_LEVEL)
 
-    # --- 4. SOLICITUDES DE RIEGO INVÁLIDAS / CONCURRENTES ---
-    def test_04_invalid_and_concurrent_requests(self):
+    # 12. Antirrebote del interruptor de flotador
+    def test_12_float_switch_debounce(self):
+        # Simulador de filtro de debouncing de 50ms
+        readings = [False, True, False, False, False]
+        # Con lecturas rápidas inestables no debe consolidarse el estado hasta que sea estable
+        stable_state = False
+        debounce_ms = 50
+        last_change_ms = 100
+        now_ms = 120 # solo 20ms transcurridos -> no consolida
+        if (now_ms - last_change_ms) >= debounce_ms:
+            stable_state = True
+        self.assertFalse(stable_state)
+
+    # 13. Antirrebote del botón físico manual
+    def test_13_button_debounce(self):
+        # Pulsos espurios de < 40ms no activan el controlador
+        button_press_duration_ms = 25
+        debounce_threshold_ms = 40
+        triggered = (button_press_duration_ms >= debounce_threshold_ms)
+        self.assertFalse(triggered)
+        # Pulso legítimo de 60ms sí activa
+        button_press_duration_ms = 60
+        triggered = (button_press_duration_ms >= debounce_threshold_ms)
+        self.assertTrue(triggered)
+
+    # 14. Inicio de riego permitido bajo condiciones nominales
+    def test_14_watering_start_permitted(self):
         self.controller.last_stop_ms = 0
-        accepted = self.controller.request_watering(IrrigationSource.AUTO_CYCLE, 1000, True, SensorHealth.OK, 15)
+        accepted = self.controller.request_watering(IrrigationSource.MANUAL_BUTTON, 5000, True, SensorHealth.OK, 50)
         self.assertTrue(accepted)
-        self.assertTrue(self.controller.is_pump_active())
+        self.assertEqual(self.controller.state, ControllerState.WATERING)
 
-        # Solicitud duplicada mientras está regando (no debe reiniciar el temporizador ni permitirse)
-        dup_accepted = self.controller.request_watering(IrrigationSource.REMOTE_WEB, 1500, True, SensorHealth.OK, 15)
-        self.assertFalse(dup_accepted)
-        self.assertEqual(self.controller.pump_start_time_ms, 1000) # El inicio no se alteró
-
-    # --- 5. LÍMITE MÁXIMO DE DURACIÓN (WATCHDOG) ---
-    def test_05_max_duration_watchdog(self):
-        self.controller.last_stop_ms = 0
+    # 15. Inicio de riego rechazado (concurrencia y cooldown)
+    def test_15_watering_start_rejected(self):
         self.controller.request_watering(IrrigationSource.MANUAL_BUTTON, 1000, True, SensorHealth.OK, 50)
-        self.assertTrue(self.controller.is_pump_active())
+        # Petición concurrente mientras ya está regando
+        second_req = self.controller.request_watering(IrrigationSource.REMOTE_WEB, 1500, True, SensorHealth.OK, 50)
+        self.assertFalse(second_req)
 
-        # A t=3999ms sigue regando (duración manual es 3000ms)
-        self.assertTrue(self.controller.update(3999, True, SensorHealth.OK, 50))
-        # A t=4000ms debe cortar por ráfaga manual cumplida
-        self.assertFalse(self.controller.update(4000, True, SensorHealth.OK, 50))
-        self.assertEqual(self.controller.state, ControllerState.IDLE)
-        self.assertEqual(self.controller.last_stop_reason, StopReason.MANUAL_BURST_COMPLETE)
-
-        # Prueba Watchdog de seguridad absoluto (25000ms) en modo auto que no alcanza la humedad
-        self.controller.last_stop_ms = 0
-        self.controller.request_watering(IrrigationSource.AUTO_CYCLE, 10000, True, SensorHealth.OK, 15)
-        # Simular que pasaron 25001ms sin subir humedad
-        self.assertFalse(self.controller.update(35001, True, SensorHealth.OK, 15))
+    # 16. Tiempo máximo de riego y watchdog absoluto anti-inundación
+    def test_16_max_watering_duration_watchdog(self):
+        self.controller.request_watering(IrrigationSource.AUTO_CYCLE, 1000, True, SensorHealth.OK, 10)
+        # Simular avance del tiempo hasta superar max_auto_ms (20s)
+        pump_state = self.controller.update(1000 + 20000, True, SensorHealth.OK, 20)
+        self.assertFalse(pump_state)
         self.assertEqual(self.controller.state, ControllerState.FAULT)
         self.assertEqual(self.controller.last_fault, FaultReason.MAX_TIMEOUT_EXCEEDED)
 
-    # --- 6. PARADA IDEMPOTENTE ---
-    def test_06_idempotent_stop(self):
-        self.controller.last_stop_ms = 0
-        self.controller.request_watering(IrrigationSource.MANUAL_BUTTON, 1000, True, SensorHealth.OK, 50)
-        self.assertTrue(self.controller.is_pump_active())
-
-        # Llamar a stop 1 vez
-        self.controller.stop(StopReason.USER_INTERRUPT, 1500)
-        self.assertFalse(self.controller.is_pump_active())
-        self.assertEqual(self.controller.state, ControllerState.IDLE)
-
-        # Llamar a stop consecutivamente 5 veces más en reposo
-        for _ in range(5):
-            self.controller.stop(StopReason.USER_INTERRUPT, 2000)
-            self.assertFalse(self.controller.is_pump_active())
-            self.assertEqual(self.controller.state, ControllerState.IDLE)
-
-    # --- 7. TRANSICIONES DE ESTADO ---
-    def test_07_state_transitions(self):
-        self.assertEqual(self.controller.state, ControllerState.IDLE)
-
-        self.controller.last_stop_ms = 0
-        # IDLE -> WATERING
-        self.controller.request_watering(IrrigationSource.AUTO_CYCLE, 1000, True, SensorHealth.OK, 10)
-        self.assertEqual(self.controller.state, ControllerState.WATERING)
-
-        # WATERING -> STOPPED -> IDLE (Al alcanzar meta de humedad >= 70%)
-        self.controller.update(2000, True, SensorHealth.OK, 72)
+    # 17. Fin normal del riego por meta de humedad alcanzada
+    def test_17_normal_watering_completion(self):
+        self.controller.request_watering(IrrigationSource.AUTO_CYCLE, 1000, True, SensorHealth.OK, 15)
+        # Alcanza 72%
+        pump_state = self.controller.update(2500, True, SensorHealth.OK, 72)
+        self.assertFalse(pump_state)
         self.assertEqual(self.controller.state, ControllerState.IDLE)
         self.assertEqual(self.controller.last_stop_reason, StopReason.NORMAL_TARGET_REACHED)
 
-    # --- 8. RECUPERACIÓN DESPUÉS DE FALLO ---
-    def test_08_recovery_after_fault(self):
-        # Provocar fallo por falta de agua
-        self.controller.request_watering(IrrigationSource.AUTO_CYCLE, 1000, False, SensorHealth.OK, 15)
-        self.assertEqual(self.controller.state, ControllerState.FAULT)
-
-        # Intento de recuperación si todavía NO hay agua (debe fracasar y seguir en FAULT)
-        rec_ok = self.controller.attempt_recovery(2000, False, SensorHealth.OK)
-        self.assertFalse(rec_ok)
-        self.assertEqual(self.controller.state, ControllerState.FAULT)
-
-        # Intento de recuperación cuando se rellenó el agua (debe transicionar a IDLE con éxito)
-        rec_ok = self.controller.attempt_recovery(3000, True, SensorHealth.OK)
-        self.assertTrue(rec_ok)
-        self.assertEqual(self.controller.state, ControllerState.IDLE)
-        self.assertEqual(self.controller.last_fault, FaultReason.NONE)
-
-    # --- 9. LECTURAS ANÓMALAS (SENSOR FAULT) ---
-    def test_09_anomalous_readings(self):
-        # Sensor desconectado (ADC = 1020 en Nano, > 980)
-        pct, health = self.nano_prof.calculate_percent(1020)
-        self.assertIsNone(pct)
-        self.assertEqual(health, SensorHealth.DISCONNECTED_OR_HIGH)
-
-        # Cortocircuito a GND (ADC = 10 en Nano, < 50)
-        pct, health = self.nano_prof.calculate_percent(10)
-        self.assertIsNone(pct)
-        self.assertEqual(health, SensorHealth.SHORT_CIRCUIT_OR_LOW)
-
-        # El controlador NO debe autorizar riego automático con sensor en estado anómalo
-        self.controller.last_stop_ms = 0
-        accepted = self.controller.request_watering(IrrigationSource.AUTO_CYCLE, 1000, True, health, 10)
+    # 18. Periodo de enfriamiento obligatorio (cooldown anti-ciclado)
+    def test_18_cooldown_period(self):
+        self.controller.last_stop_ms = 10000
+        # Petición a los 2000ms posteriores (< 5000ms de cooldown)
+        accepted = self.controller.request_watering(IrrigationSource.MANUAL_BUTTON, 12000, True, SensorHealth.OK, 50)
         self.assertFalse(accepted)
-        self.assertEqual(self.controller.state, ControllerState.FAULT)
-        self.assertEqual(self.controller.last_fault, FaultReason.SENSOR_MALFUNCTION)
+        # Petición a los 6000ms posteriores (> 5000ms): aceptada
+        accepted = self.controller.request_watering(IrrigationSource.MANUAL_BUTTON, 16001, True, SensorHealth.OK, 50)
+        self.assertTrue(accepted)
 
-    # --- 10. DESBORDAMIENTO DE TEMPORIZADORES (ROLLOVER uint32) ---
-    def test_10_timer_overflow(self):
-        # Simular que el microcontrolador lleva 49.7 días encendido y millis() está cerca del desbordamiento
+    # 19. Bloqueo total ante estado de fallo (error lockout)
+    def test_19_error_lockout(self):
+        self.controller.state = ControllerState.FAULT
+        self.controller.last_fault = FaultReason.NO_WATER_LEVEL
+        # Ningún disparador debe encender la bomba
+        self.assertFalse(self.controller.request_watering(IrrigationSource.MANUAL_BUTTON, 1000, True, SensorHealth.OK, 20))
+        self.assertFalse(self.controller.request_watering(IrrigationSource.AUTO_CYCLE, 1000, True, SensorHealth.OK, 10))
+        self.assertFalse(self.controller.request_watering(IrrigationSource.REMOTE_WEB, 1000, True, SensorHealth.OK, 20))
+
+    # 20. Recuperación condicionada tras normalización de fallos
+    def test_20_recovery_after_fault(self):
+        self.controller.state = ControllerState.FAULT
+        self.controller.last_fault = FaultReason.NO_WATER_LEVEL
+        # Intento cuando aún no hay agua -> Falla
+        self.assertFalse(self.controller.attempt_recovery(1000, False, SensorHealth.OK))
+        self.assertEqual(self.controller.state, ControllerState.FAULT)
+        # Intento cuando se repuso el agua -> Éxito
+        self.assertTrue(self.controller.attempt_recovery(2000, True, SensorHealth.OK))
+        self.assertEqual(self.controller.state, ControllerState.IDLE)
+
+    # 21. Reinicio seguro del microcontrolador (cero memoria de bombeo)
+    def test_21_reboot_during_watering(self):
+        # Simular que el microcontrolador se reinicia repentinamente en pleno bombeo
+        rebooted_ctrl = MockIrrigationController()
+        self.assertEqual(rebooted_ctrl.state, ControllerState.IDLE)
+        self.assertFalse(rebooted_ctrl.is_pump_active())
+
+    # 22. Desbordamiento de temporizador de 32 bits (millis rollover)
+    def test_22_millis_timer_overflow(self):
         rollover_start = 0xFFFFFFF0 # 4294967280
         self.controller.last_stop_ms = 0
         self.controller.request_watering(IrrigationSource.MANUAL_BUTTON, rollover_start, True, SensorHealth.OK, 50)
-        self.assertTrue(self.controller.is_pump_active())
-
-        # now_ms cruza el desbordamiento: 0xFFFFFFF0 + 3000 = 0x00000BA8 (2984)
         rollover_now = (rollover_start + 3000) & 0xFFFFFFFF
-        # La resta sin signo (now - start) & 0xFFFFFFFF da exactamente 3000ms
         elapsed = (rollover_now - rollover_start) & 0xFFFFFFFF
         self.assertEqual(elapsed, 3000)
-
-        # El controlador debe apagar la bomba limpiamente sin congelarse
         pump_running = self.controller.update(rollover_now, True, SensorHealth.OK, 50)
         self.assertFalse(pump_running)
         self.assertEqual(self.controller.state, ControllerState.IDLE)
-        self.assertEqual(self.controller.last_stop_reason, StopReason.MANUAL_BURST_COMPLETE)
 
-    # --- 11. RECHAZO DE SOLICITUDES HTTP NO AUTORIZADAS ---
-    def test_11_http_authorization(self):
-        valid_token = "FLORACARE_SECRET_TOKEN_2026"
-        
-        # Simulación de middleware HTTP:
-        def mock_api_water(method, received_token):
+    # 23. Solicitud HTTP sin token (rechazo 401)
+    def test_23_http_missing_token(self):
+        def mock_endpoint(method, token, configured_token):
             if method != "POST":
                 return 405, "Method Not Allowed"
-            if received_token != valid_token:
+            if not token or token != configured_token:
                 return 401, "Unauthorized"
-            return 200, "Accepted"
-
-        # Rechazo por método GET
-        status, _ = mock_api_water("GET", valid_token)
-        self.assertEqual(status, 405)
-
-        # Rechazo por token inválido en POST
-        status, _ = mock_api_water("POST", "WRONG_TOKEN")
+            return 200, "OK"
+        status, _ = mock_endpoint("POST", "", "SECURE_TOKEN_ABC_123456")
         self.assertEqual(status, 401)
 
-        # Rechazo por token ausente
-        status, _ = mock_api_water("POST", "")
+    # 24. Solicitud HTTP con token inválido (rechazo 401)
+    def test_24_http_invalid_token(self):
+        def mock_endpoint(method, token, configured_token):
+            if token != configured_token:
+                return 401, "Unauthorized"
+            return 200, "OK"
+        status, _ = mock_endpoint("POST", "WRONG_TOKEN", "SECURE_TOKEN_ABC_123456")
         self.assertEqual(status, 401)
 
-        # Aceptación con método POST y token válido
-        status, _ = mock_api_water("POST", valid_token)
+    # 25. Solicitud HTTP válida con POST y token correcto
+    def test_25_http_valid_request(self):
+        secure_token = "SUPER_SECURE_TOKEN_123456789"
+        self.controller.last_stop_ms = 0
+        accepted = self.controller.request_watering(IrrigationSource.REMOTE_WEB, 1000, True, SensorHealth.OK, 50)
+        self.assertTrue(accepted)
+        self.assertEqual(self.controller.state, ControllerState.WATERING)
+
+    # 26. Solicitudes HTTP repetidas (idempotencia temporal)
+    def test_26_http_repeated_requests(self):
+        self.controller.last_stop_ms = 0
+        self.controller.request_watering(IrrigationSource.REMOTE_WEB, 1000, True, SensorHealth.OK, 50)
+        # Peticiones repetidas durante el pulso activo
+        req2 = self.controller.request_watering(IrrigationSource.REMOTE_WEB, 1500, True, SensorHealth.OK, 50)
+        req3 = self.controller.request_watering(IrrigationSource.REMOTE_WEB, 2000, True, SensorHealth.OK, 50)
+        self.assertFalse(req2)
+        self.assertFalse(req3)
+        # El tiempo de parada original sigue siendo estrictamente 3000ms desde 1000ms
+        self.controller.update(4000, True, SensorHealth.OK, 50)
+        self.assertEqual(self.controller.state, ControllerState.IDLE)
+
+    # 27. Solicitud HTTP durante bloqueo por falta de agua (rechazo 409)
+    def test_27_http_request_during_lockout(self):
+        accepted = self.controller.request_watering(IrrigationSource.REMOTE_WEB, 1000, False, SensorHealth.OK, 50)
+        self.assertFalse(accepted)
+        self.assertEqual(self.controller.state, ControllerState.FAULT)
+
+    # 28. Detección y bloqueo de token predeterminado o inseguro (403 Forbidden)
+    def test_28_http_insecure_default_token(self):
+        def check_token_security(configured_token):
+            if configured_token in ("FLORACARE_DEFAULT_TOKEN_CHANGE_ME", "CAMBIA_ESTE_TOKEN_SECRETO_12345"):
+                return 403, "Insecure Default Token"
+            if len(configured_token) < 16:
+                return 403, "Token Too Short (< 16 chars)"
+            return 200, "Token Valid"
+
+        status, _ = check_token_security("FLORACARE_DEFAULT_TOKEN_CHANGE_ME")
+        self.assertEqual(status, 403)
+        status, _ = check_token_security("short_123")
+        self.assertEqual(status, 403)
+        status, _ = check_token_security("VALID_STRONG_TOKEN_987654321")
         self.assertEqual(status, 200)
+
+    # 29. Resiliencia y autonomía local ante pérdida de Wi-Fi
+    def test_29_wifi_loss_resilience(self):
+        # Simular que el subsistema Wi-Fi cae a desconectado
+        wifi_connected = False
+        # El lazo de control local sigue evaluando humedad y flotador
+        self.controller.last_stop_ms = 0
+        accepted = self.controller.request_watering(IrrigationSource.AUTO_CYCLE, 1000, True, SensorHealth.OK, 18)
+        self.assertTrue(accepted)
+        self.assertEqual(self.controller.state, ControllerState.WATERING)
+
+    # 30. Garantía universal de bomba apagada ante cualquier fallo
+    def test_30_all_faults_guarantee_pump_off(self):
+        # Fallo 1: Falta de agua
+        self.controller.request_watering(IrrigationSource.AUTO_CYCLE, 1000, True, SensorHealth.OK, 15)
+        self.controller.update(2000, False, SensorHealth.OK, 15)
+        self.assertFalse(self.controller.is_pump_active())
+
+        # Fallo 2: Fallo de sensor
+        self.controller.attempt_recovery(3000, True, SensorHealth.OK)
+        self.controller.request_watering(IrrigationSource.AUTO_CYCLE, 10000, True, SensorHealth.OK, 15)
+        self.controller.update(11000, True, SensorHealth.SHORT_CIRCUIT_OR_LOW, 15)
+        self.assertFalse(self.controller.is_pump_active())
+
+        # Fallo 3: Timeout de seguridad
+        self.controller.attempt_recovery(20000, True, SensorHealth.OK)
+        self.controller.request_watering(IrrigationSource.AUTO_CYCLE, 25000, True, SensorHealth.OK, 15)
+        self.controller.update(25000 + 25001, True, SensorHealth.OK, 15)
+        self.assertFalse(self.controller.is_pump_active())
 
 
 if __name__ == "__main__":

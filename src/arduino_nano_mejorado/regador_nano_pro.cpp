@@ -62,6 +62,9 @@ static bool     waterLevelOk         = true;
 static bool     lastButtonReading    = HIGH;
 static uint32_t lastButtonDebounceMs = 0;
 
+// --- ESTADO DEL DISPLAY OLED ---
+static bool oledAvailable = false;
+
 // ============================================================================
 // SERVICIO DE FILTRADO ANALÓGICO (SOBREMUESTREO RÁPIDO)
 // ============================================================================
@@ -79,6 +82,9 @@ static uint16_t sampleAnalogFast() {
 // CAPA DE PRESENTACIÓN: RENDERIZADO OLED SSD1306
 // ============================================================================
 static void renderDisplay(const __FlashStringHelper* statusLabel) {
+    if (!oledAvailable) {
+        return; // No intentar renderizar si la pantalla falló o no está conectada
+    }
     display.clearDisplay();
 
     display.setTextSize(1);
@@ -132,19 +138,20 @@ void setup() {
     pinMode(PIN_BOTON_MANUAL, INPUT_PULLUP);
 
     if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
-        Serial.println(F("[ERROR] OLED SSD1306 no responde"));
-        while (true) {}
+        Serial.println(F("[AVISO] OLED SSD1306 no responde. Riego continuo autonomo habilitado sin pantalla."));
+        oledAvailable = false;
+    } else {
+        oledAvailable = true;
+        display.clearDisplay();
+        display.setTextSize(1);
+        display.setTextColor(SSD1306_WHITE);
+        display.setCursor(16, 20);
+        display.println(F("INICIALIZANDO..."));
+        display.setCursor(20, 35);
+        display.println(F("FLORACARE NANO"));
+        display.display();
+        delay(500);
     }
-
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(16, 20);
-    display.println(F("INICIALIZANDO..."));
-    display.setCursor(20, 35);
-    display.println(F("FLORACARE NANO"));
-    display.display();
-    delay(1000);
 
     uint16_t raw = sampleAnalogFast();
     SensorValidator::calculateMoisturePercent(raw, NANO_CALIBRATION, currentMoisturePct, sensorStatus);

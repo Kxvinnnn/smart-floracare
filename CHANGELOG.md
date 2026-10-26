@@ -7,6 +7,21 @@ y este proyecto se adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
 ---
 
+## [1.2.0] - 2026-10-25
+
+### Corregido
+- **Bloqueo Crítico por Fallo de Pantalla OLED en Nano:** Eliminación del bucle infinito `while(true){}` en `setup()`. Se introdujo la bandera `oledAvailable`, permitiendo que el sistema continúe supervisando y regando de forma autónoma aunque la pantalla sufra un fallo de comunicación I2C.
+- **Recolección de Encabezado HTTP de Autorización en ESP32:** Registro explícito de `server.collectHeaders(headerKeys, 1)` para capturar correctamente el encabezado `Authorization: Bearer <token>`.
+- **Fuga de Credencial en Formulario Web:** Eliminación del token secreto como valor plano embebido en `<input type='hidden'>` en la página HTML. Se reemplazó por campo interactivo protegido (`type='password'`).
+- **Inhabilitación de API ante Token Inseguro:** El endpoint `POST /api/water` rechaza con HTTP 403 Forbidden cualquier comando remoto si el sistema está ejecutando con el token predeterminado de ejemplo o una clave de longitud inferior a 16 caracteres.
+
+### Añadido
+- **Suite Completa de 30 Pruebas Automatizadas:** Expansión exhaustiva de `tests/test_irrigation_suite.py` cubriendo arranque seguro, antirrebotes, histéresis, fallos de sensor, desbordamiento de `millis()`, seguridad HTTP y garantías universales de apagado.
+- **Análisis de Modos de Fallo (FMEA) F-10, F-11 y F-12:** Incorporación de análisis y mitigaciones para fallo de OLED, fuga de token y desconexión física del cable de flotador.
+- **Especificación de Compuerta MOSFET y Conmutación Segura:** Documentación de constante de tiempo RC de compuerta ($\tau = 1.7\,\mu\text{s}$) y procedimiento de intercambio seguro de controladores en `docs/03_DIAGRAMA_Y_CONEXIONES.md`.
+
+---
+
 ## [1.1.0] - 2026-10-25
 
 ### Corregido

@@ -120,11 +120,30 @@ Este documento proporciona los esquemas detallados de cableado pin a pin para la
 - **1N5819 (Diodo Schottky - Elección Principal):** Soporta $1.0\,\text{A}$ continuo y $25\,\text{A}$ de sobretensión. Tiene un tiempo de recuperación ultra rápido ($< 10\,\text{ns}$) y una caída directa mínima ($V_F \approx 0.35\,\text{V}$). Es la opción perfecta para motores de 5V.
 - **1N4007 (Diodo Rectificador - Alternativa Aceptable):** Soporta $1.0\,\text{A}$ continuo y $30\,\text{A}$ de pico transitorio. Su recuperación es más lenta (~$2\,\mu\text{s}$), pero amortigua eficazmente el pico inductivo en motores de corriente continua pequeños.
 
-### 4.3 Dimensionamiento de la Fuente Regulada de 5V (2A a 3A)
-- Consumo pico simultáneo en el peor escenario:
-  - Microbomba 5V DC: $250\,\text{mA}$ nominal, pico de arranque transitorio de $600\,\text{mA}-800\,\text{mA}$.
-  - ESP32 transmitiendo WiFi a máxima potencia: $240\,\text{mA}-350\,\text{mA}$.
-  - Pantalla OLED SSD1306 blanca con todos los píxeles encendidos: $30\,\text{mA}-40\,\text{mA}$.
-  - Microcontrolador Nano / periféricos pasivos: $\approx 50\,\text{mA}$.
-- **Consumo pico máximo total:** $\approx 1.25\,\text{A}$.
-- Con una fuente de **5V y 2A a 3A**, el sistema opera con un margen de holgura superior al 60%, evitando caídas de tensión bruscas (*brownouts*) que reiniciarían el ESP32 o el Nano cuando la bomba arranque.
+### 4.4 Tabla de Verdad del Flotador y Comportamiento Fail-Safe
+
+El interruptor de flotador opera como un contacto seco normalmente abierto/cerrado con imán permanente en la boya. Se conecta entre el pin digital (`D4` en Nano / `GPIO 19` en ESP32) y `GND`, utilizando la resistencia interna `INPUT_PULLUP` (~30–50 kΩ en AVR, ~45 kΩ en ESP32).
+
+| Condición Física del Depósito | Estado Mecánico del Flotador | Estado del Contacto Reed | Tensión en Pin | Lectura Digital (`digitalRead`) | `waterLevelOk` | Acción del Sistema |
+| :--- | :--- | :---: | :---: | :---: | :---: | :--- |
+| **Depósito Lleno / Suficiente** | Boya elevada por flotación | **CERRADO a GND** | $\approx 0.0\,\text{V}$ | `LOW` | **`true`** | Riego permitido si otras condiciones se cumplen |
+| **Depósito Vacío / Nivel Bajo** | Boya caída por gravedad | **ABIERTO** | $3.3\,\text{V} / 5.0\,\text{V}$ (Pull-up) | `HIGH` | **`false`** | Bomba bloqueada incondicionalmente (`FAULT`) |
+| **Cable Cortado / Desconectado** | Circuito abierto accidental | **ABIERTO** | $3.3\,\text{V} / 5.0\,\text{V}$ (Pull-up) | `HIGH` | **`false`** | **Fail-Safe:** Bloqueo inmediato (no riega a ciegas) |
+| **Cortocircuito Accidental a Chasis** | Pata puenteada a tierra | CERRADO permanente | $0.0\,\text{V}$ | `LOW` | `true` | Depende del watchdog de 25s si el tanque se vacía |
+
+> [!IMPORTANT] Orientación Mecánica Obligatoria de la Boya
+> Para asegurar el comportamiento **Fail-Safe** (que un cable suelto simule tanque vacío y bloquee el bombeo), el sensor de flotador se debe montar de modo que cuando el agua empuje la boya hacia arriba, el contacto magnético interno se **CIERRE** (conduzca a GND). Si tu modelo de boya viene invertido de fábrica, extrae el anillo de seguridad tipo circlip en la punta, dale la vuelta 180° a la boya cilíndrica y vuelve a colocar el seguro.
+
+### 4.5 Resistencia de Compuerta ($R_G$) y Tiempo de Conmutación
+- **Resistencia en serie ($1\,\text{k}\Omega$):** Con una capacidad de entrada típica $C_{iss} \approx 1700\,\text{pF}$ en el IRLZ44N, la constante de tiempo es $\tau = R \cdot C = 1000 \cdot 1.7\times 10^{-9} \approx 1.7\,\mu\text{s}$. El tiempo de conmutación total ($3\tau$) es $\approx 5.1\,\mu\text{s}$.
+- Como la bomba conmuta en corriente continua estacionaria (encendido por segundos) y **no mediante modulación PWM a alta frecuencia**, un tiempo de subida de $5\,\mu\text{s}$ es perfectamente seguro, no produce pérdidas térmicas apreciables y protege el pin del microcontrolador limitando el pico de corriente de carga de compuerta a solo $I_{peak} \le 3.3\,\text{mA}$ en ESP32 y $5\,\text{mA}$ en Nano.
+- **Resistencia Pull-Down ($10\,\text{k}\Omega$):** Conectada directamente entre Gate y Source (GND). Garantiza que durante el encendido del microcontrolador (cuando los pines GPIO se encuentran en alta impedancia o modo flotante antes de ejecutar `setup()`), la compuerta se mantenga sólidamente a $0\,\text{V}$, impidiendo cualquier encendido espurio o pulso transitorio de la bomba.
+
+### 4.6 Intercambio Seguro de Controladores (Uso Alternado sin Retroalimentación)
+- Como ambas variantes comparten el mismo montaje hidráulico y fuente de 5V, **NUNCA** se deben conectar los dos microcontroladores al mismo tiempo a la bomba.
+- El circuito cuenta con una bornera o conectores Dupont macho/hembra de 3 vías (Alimentación +5V, Señal Gate, Tierra GND). Para cambiar de Nano a ESP32:
+  1. Desconecta la fuente de pared de 5V.
+  2. Desconecta el conector de 3 vías del controlador actual.
+  3. Conecta el conector de 3 vías en el controlador alternativo.
+  4. Reconecta la fuente de pared de 5V.
+- Esto elimina cualquier riesgo de corriente circulante o retroalimentación parásita entre placas.

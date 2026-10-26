@@ -87,6 +87,9 @@ static bool     waterLevelOk      = true;
 static bool     lastButtonState   = HIGH;
 static uint32_t lastButtonDebounceMs = 0;
 
+// --- ESTADO DEL DISPLAY OLED ---
+static bool oledAvailable = false;
+
 // ============================================================================
 // LECTURA FILTRADA DEL SENSOR ANALÓGICO (SOBREMUESTREO RÁPIDO NO BLOQUEANTE)
 // ============================================================================
@@ -104,6 +107,9 @@ static uint16_t sampleAnalogFast() {
 // CAPA DE PRESENTACIÓN: RENDERIZADO OLED
 // ============================================================================
 static void updateDisplay(const char* statusMsg) {
+    if (!oledAvailable) {
+        return;
+    }
     display.clearDisplay();
 
     display.setTextSize(1);
@@ -167,10 +173,9 @@ static void handleRoot() {
     html += F("</b></p><p>Estado Bomba: <b>");
     html += controller.isPumpActive() ? "<span style='color:#1565c0'>REGANDO...</span>" : "Reposo";
     html += F("</b></p>"
-              "<form method='POST' action='/api/water'>"
-              "<input type='hidden' name='token' value='");
-    html += API_AUTH_TOKEN;
-    html += F("'>"
+              "<form method='POST' action='/api/water' style='margin-top:16px;'>"
+              "<input type='password' name='token' placeholder='Token de autorizaci&oacute;n' required "
+              "style='padding:8px;border-radius:4px;border:1px solid #ccc;width:80%;max-width:240px;margin-bottom:10px;'><br>"
               "<button type='submit' class='btn'>Regar 3 Segundos (Manual)</button>"
               "</form></div></body></html>");
 
@@ -184,14 +189,28 @@ static void handleApiWater() {
         return;
     }
 
-    // 2. Validación de autorización por Token (previene ataques CSRF / peticiones accidentales)
+    // 2. Verificación de robustez del token de configuración
+    // Si el token es el placeholder por defecto o tiene menos de 16 caracteres, la API se inhabilita por seguridad
+    if (strcmp(API_AUTH_TOKEN, "FLORACARE_DEFAULT_TOKEN_CHANGE_ME") == 0 ||
+        strcmp(API_AUTH_TOKEN, "CAMBIA_ESTE_TOKEN_SECRETO_12345") == 0 ||
+        strlen(API_AUTH_TOKEN) < 16) {
+        server.send(403, "application/json", F("{\"error\":\"Forbidden. Remote API disabled: Insecure or default token configured in Credentials.h\"}"));
+        return;
+    }
+
+    // 3. Validación de autorización por Token (previene accesos no autorizados / CSRF)
     String token = server.arg("token");
-    if (token != API_AUTH_TOKEN && server.header("Authorization") != API_AUTH_TOKEN) {
+    String authHeader = server.header("Authorization");
+    if (authHeader.startsWith("Bearer ")) {
+        authHeader = authHeader.substring(7);
+    }
+    const bool authorized = (token == API_AUTH_TOKEN) || (authHeader == API_AUTH_TOKEN);
+    if (!authorized) {
         server.send(401, "application/json", F("{\"error\":\"Unauthorized. Invalid token.\"}"));
         return;
     }
 
-    // 3. Validación centralizada a través del controlador de riego
+    // 4. Validación centralizada a través del controlador de riego
     const uint32_t nowMs = millis();
     bool accepted = controller.requestWatering(IrrigationSource::REMOTE_WEB,
                                               nowMs,
@@ -228,7 +247,10 @@ void setup() {
 
     Wire.begin(21, 22);
     if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
-        Serial.println(F("[ERROR] Falla inicializando OLED"));
+        Serial.println(F("[AVISO] Falla inicializando OLED. Operando sin pantalla."));
+        oledAvailable = false;
+    } else {
+        oledAvailable = true;
     }
 
     // Conexión WiFi con límite de reintentos
@@ -240,7 +262,9 @@ void setup() {
         retries++;
     }
 
-    // Configuración de endpoints del servidor HTTP
+    // Configuración de endpoints y encabezados del servidor HTTP
+    const char* headerKeys[] = {"Authorization"};
+    server.collectHeaders(headerKeys, 1);
     server.on("/", HTTP_GET, handleRoot);
     server.on("/api/water", HTTP_POST, handleApiWater);
     server.begin();

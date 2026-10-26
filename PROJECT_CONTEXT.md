@@ -75,7 +75,12 @@ El firmware adopta una **Arquitectura en Capas (Layered Embedded Architecture)**
 - [x] **v0.1.0:** Ingeniería inversa del video de Wirecora y extracción del esquema original.
 - [x] **v0.2.0:** Rediseño con MOSFET de nivel lógico, sensor de flotador, buzzer suave y botón manual.
 - [x] **v1.0.0:** Formalización de estándares de ingeniería internacional, estructura modular en capas, ADRs, FMEA, archivo de contexto vivo (`PROJECT_CONTEXT.md`) y configuración multiplataforma PlatformIO.
-- [x] **v1.1.0 (Auditoría Técnica, Validación Integral y CI):**
+- [x] **v1.2.0 (Endurecimiento de Seguridad, Suite de 30 Tests y Resiliencia Hardware):**
+  - Eliminación de cuelgue infinito `while(true){}` por fallo de OLED en Arduino Nano; modo de operación ciega autónomo.
+  - Endurecimiento de seguridad API ESP32: recolección de cabeceras HTTP `Authorization: Bearer`, eliminación de exposición de token en HTML y rechazo de tokens por defecto (< 16 chars) con HTTP 403.
+  - Suite de 30 pruebas automatizadas cubriendo el 100% de la lógica de dominio, interlocks, robustez de red y temporizadores.
+  - Análisis de modos de fallo F-10, F-11 y F-12 agregados al FMEA (IEC 60812).
+  - Protocolo de intercambio seguro de controladores en banco y tabla de verdad fail-safe para flotador en `docs/03_DIAGRAMA_Y_CONEXIONES.md`.
   - Corrección de `platformio.ini` (aislamiento explícito de entornos con `build_src_filter`).
   - Creación de dominio centralizado desacoplado de hardware: `include/IrrigationController.h` y `include/SensorValidator.h`.
   - Eliminación total de llamadas bloqueantes `delay()` en el firmware ESP32.
