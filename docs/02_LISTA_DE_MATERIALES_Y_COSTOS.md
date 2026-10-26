@@ -47,8 +47,8 @@ La siguiente tabla enumera con precisión cada componente del circuito, distingu
 | **SW-01** | Sensor de nivel | Boya magnética reed switch CS-CO058 | 1 por placa | Enclavamiento fail-safe por depósito vacío | `docs/03_DIAGRAMA_Y_CONEXIONES.md` | CONFIRMADO POR CÓDIGO |
 | **BUZ-01** | Transductor acústico | Zumbador piezoeléctrico pasivo 5V/3.3V | 1 por placa | Señalización audible suave de alarmas (850 Hz) | `docs/03_DIAGRAMA_Y_CONEXIONES.md` | CONFIRMADO POR CÓDIGO |
 | **BTN-01** | Pulsador manual | Tact switch 6x6 mm 4 pines | 1 por placa | Disparo de ciclo manual supervisado (3 s) | `docs/03_DIAGRAMA_Y_CONEXIONES.md` | CONFIRMADO POR CÓDIGO |
-| **Q1** | Transistor NPN | 2N2222A (TO-92, JEDEC) | 1 (Solo ESP32) | Traslador de nivel de entrada del pre-driver | `docs/03_DIAGRAMA_Y_CONEXIONES.md` | CONFIRMADO POR DOCUMENTACIÓN |
-| **Q2** | Transistor PNP | 2N3906 (TO-92, JEDEC) | 1 (Solo ESP32) | Conmutador de nivel alto a riel de 5V | `docs/03_DIAGRAMA_Y_CONEXIONES.md` | CONFIRMADO POR DOCUMENTACIÓN |
+| **Q1** | Transistor NPN | 2N2222A / PN2222A / P2N2222A (TO-92, selección provisional) | 1 (Solo ESP32) | Traslador de nivel de entrada del pre-driver (pines funcionales E, B, C sujetos a hoja técnica) | `docs/03_DIAGRAMA_Y_CONEXIONES.md` | SELECCIÓN PROVISIONAL (PINOUT PENDIENTE DE DATASHEET) |
+| **Q2** | Transistor PNP | 2N3906 (TO-92, selección provisional) | 1 (Solo ESP32) | Conmutador de nivel alto a riel de 5V (pines funcionales E, B, C sujetos a hoja técnica) | `docs/03_DIAGRAMA_Y_CONEXIONES.md` | SELECCIÓN PROVISIONAL (PINOUT PENDIENTE DE DATASHEET) |
 | **Q3** | N-MOSFET Logic-Level | Vishay IRLZ44N (TO-220) | 1 por placa | Interruptor de potencia de bajo lado (Low-Side) | `docs/adr/ADR-001-MOSFET-SELECTION.md` | CONFIRMADO POR DOCUMENTACIÓN |
 | **D1** | Diodo Schottky | 1N5819 ($40\,\text{V}, 1\,\text{A}, V_F \le 0.45\,\text{V}$) | 1 por placa | Supresión rápida de fuerza contraelectromotriz | `docs/adr/ADR-001-MOSFET-SELECTION.md` | CONFIRMADO POR DOCUMENTACIÓN |
 | **R_G_NANO** | Resistencia de compuerta | $1\,\text{k}\Omega$ 1/4W 5% | 1 (Solo Nano) | Limitación de corriente de pico en pin D3 | `docs/03_DIAGRAMA_Y_CONEXIONES.md` | CONFIRMADO POR DOCUMENTACIÓN |
@@ -62,6 +62,11 @@ La siguiente tabla enumera con precisión cada componente del circuito, distingu
 | **PMP-01** | Microbomba sumergible | JT-DC3W (3.5V - 5V DC, 200-350 mA) | 1 (Compartida) | Impulsión hidráulica de agua hacia la planta | `docs/01_ARQUITECTURA_DEL_SISTEMA.md` | CONFIRMADO POR DOCUMENTACIÓN |
 | **PWR-SRC** | Fuente regulada | 5V DC 2A a 3A estabilizada | 1 (Compartida) | Alimentación unificada de potencia y lógica | `docs/03_DIAGRAMA_Y_CONEXIONES.md` | CONFIRMADO POR DOCUMENTACIÓN |
 
+> [!CAUTION] Alerta Crítica sobre Pinout de Q1 y Q2 en Encapsulado TO-92 (CRIT-01):
+> La selección de los transistores bipolares Q1 (2N2222A) y Q2 (2N3906) es de naturaleza funcional y **provisional en cuanto al orden numérico de pines**.
+> Existen variantes de mercado con orden invertido: por ejemplo, la serie `P2N2222A` (onsemi) presenta patillaje **1: Colector, 2: Base, 3: Emisor (C-B-E)**, mientras que la serie `PN2222A` u otros fabricantes utilizan **1: Emisor, 2: Base, 3: Colector (E-B-C)**.
+> **Instrucción Obligatoria:** Antes de realizar el montaje o energizar el circuito, es mandatorio inspeccionar el marcaje serigrafiado en el componente físico, obtener la hoja técnica del fabricante exacto y comprobar las uniones con la función de diodos de un multímetro. Los terminales se conectan estrictamente por su función (Emisor a GND para Q1, Emisor a +5V para Q2).
+
 ---
 
 ## 🔌 3. Grupo A: Electrónica de Control (Desglose Itemizado por Componente)
@@ -72,8 +77,8 @@ La siguiente tabla enumera con precisión cada componente del circuito, distingu
 | **MCU-02** | **ESP32 DevKit V1** | ESP-WROOM-32 (30 pines), Dual-Core, 3.3V, Wi-Fi 802.11 b/g/n | 1 | Solo ESP32 | Electronilab / Dinastía | \$28,000 | \$28,000 |
 | **DISP-01** | **Pantalla OLED 0.96"** | 128×64 monocromo, controlador SSD1306, bus I2C (0x3C) | 2 | 1 c/u | Electronilab / RoosTech | \$13,500 | \$27,000 |
 | **SENS-01** | **Sensor de Suelo Capacitivo v1.2** | Salida analógica proporcional. **Nano a 5V; ESP32 obligatoriamente a 3.3V** | 2 | 1 c/u | Mecabot / RoosTech | \$6,500 | \$13,000 |
-| **PWR-01A**| **Transistor NPN Pre-Driver** | **2N2222A** (TO-92, JEDEC, $V_{CEO} = 40\,\text{V}, I_C = 600\,\text{mA}$) | 1 | Solo ESP32 | Almacén de electrónica | \$800 | \$800 |
-| **PWR-01B**| **Transistor PNP Pre-Driver** | **2N3906** (TO-92, JEDEC, $V_{CEO} = 40\,\text{V}, I_C = 200\,\text{mA}$) | 1 | Solo ESP32 | Almacén de electrónica | \$700 | \$700 |
+| **PWR-01A**| **Transistor NPN Pre-Driver** | **2N2222A / PN2222A / P2N2222A** (TO-92, selección provisional - pinout variable por fabricante) | 1 | Solo ESP32 | Almacén de electrónica | \$800 | \$800 |
+| **PWR-01B**| **Transistor PNP Pre-Driver** | **2N3906** (TO-92, selección provisional - pinout variable por fabricante) | 1 | Solo ESP32 | Almacén de electrónica | \$700 | \$700 |
 | **PWR-02** | **MOSFET de Potencia IRLZ44N** | **Vishay Siliconix IRLZ44N** ($R_{DS(on)} \le 0.035\,\Omega$ a $V_{GS}=5.0\,\text{V}$) | 2 | 1 c/u | Almacén de electrónica | \$3,000 | \$6,000 |
 | **DIO-01** | **Diodo Flyback Schottky** | **1N5819** ($40\,\text{V}, 1\,\text{A}, V_F \le 0.45\,\text{V}$) en antiparalelo con motor | 2 | 1 c/u | Almacén de electrónica | \$600 | \$1,200 |
 | **SW-01** | **Sensor de Flotador de Nivel** | Boya magnética con interruptor reed hermético (CS-CO058 / Horizontal) | 2 | 1 c/u | [Mecabot](https://www.mecabot.com/products/sensor-de-nivel-de-agua-horizontal-cs-co058) / Electronilab | \$12,900 | \$25,800 |

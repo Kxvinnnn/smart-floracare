@@ -209,14 +209,31 @@ En el ESP32 (lógica de 3.3V), la compuerta del IRLZ44N **no debe conectarse dir
    - La indicación de que N6 mide $+5.0\,\text{V}$ en reposo asume que existe una carga eléctrica conectada entre el riel de $+5.0\,\text{V}$ y el terminal Drain (ya sea la rama de prueba LED + resistencia de $330\,\Omega$, o el bobinado de la bomba). La resistencia interna de dicha carga actúa como pull-up natural.
    - Si no hay ninguna carga conectada entre +5V y N6 (circuito abierto), el nodo N6 se encuentra en alta impedancia (flotante), y la lectura con un multímetro de alta impedancia de entrada no reflejará $+5.0\,\text{V}$ de manera determinista.
 
-#### Pines y Encapsulados de los Semiconductores (Vista Frontal Cara Plana):
-- **Q1 (2N2222A - NPN TO-92):** Pin 1 = Emisor (a GND), Pin 2 = Base (desde GPIO 18 vía $R_1$), Pin 3 = Colector (a Base de Q2 vía $R_2$).
-- **Q2 (2N3906 - PNP TO-92):** Pin 1 = Emisor (a +5.0V), Pin 2 = Base (con $R_{pu} = 10\,\text{k}\Omega$ a +5V y $R_2 = 2.2\,\text{k}\Omega$ a Colector Q1), Pin 3 = Colector (a Gate de M1).
-- **M1 (IRLZ44N - N-MOSFET TO-220):** Pin 1 = Gate (desde Colector Q2 con $R_{pd2} = 10\,\text{k}\Omega$ a GND), Pin 2 = Drain (a retorno de bomba), Pin 3 = Source (a GND).
-- **D1 (1N5819 Schottky):** Cátodo (franja plateada) al borne positivo (+5V) del motor; Ánodo al borne negativo (Drain) del motor.
+#### Identificación Funcional y Variantes de Encapsulado (CRIT-01):
+> [!CAUTION] Alerta Crítica de Fabricante: Ambigüedad en el Pinout de Q1 (2N2222A / PN2222A / P2N2222A)
+> **No existe un orden de pines numérico universal para transistores marcados como 2N2222 en encapsulado plástico TO-92.**
+> - **Variante P2N2222A (onsemi / Motorola):** Con la cara plana hacia el observador y las patillas hacia abajo, el orden de pines es **Pin 1 = Colector (C), Pin 2 = Base (B), Pin 3 = Emisor (E)**.
+> - **Variante PN2222A / 2N2222A (Fairchild / Central Semiconductor / genéricos):** Con la cara plana hacia el observador y las patillas hacia abajo, el orden es **Pin 1 = Emisor (E), Pin 2 = Base (B), Pin 3 = Colector (C)**.
+> - **Variante 2N2222 original (Cápsula metálica TO-18):** Pin 1 = Emisor, Pin 2 = Base, Pin 3 = Colector (unido eléctricamente a la carcasa).
+> - **Transistor Q2 (2N3906 PNP TO-92):** Habitualmente Pin 1 = Emisor (E), Pin 2 = Base (B), Pin 3 = Colector (C), pero igualmente sujeto a variación según el fabricante.
+> 
+> **Regla Mandatoria de Montaje (Opción B):** Todos los esquemas y conexiones se definen exclusivamente por la **función terminal** (Emisor, Base, Colector). Los números de pin quedan **provisionales y pendientes de confirmación** hasta que el ensamblador verifique el marcaje exacto del componente adquirido, consulte su hoja de datos oficial y compruebe las uniones con la función de diodo del multímetro ($V_{BE} \approx 0.65\text{--}0.70\,\text{V}$, $V_{BC} \approx 0.65\text{--}0.70\,\text{V}$ con $V_{BE} > V_{BC}$).
 
-> [!WARNING] Verificación Obligatoria de Pines del Transistor Comprado
-> La distribución indicada (Pin 1=Emisor, Pin 2=Base, Pin 3=Colector con cara plana frontal y patas hacia abajo) corresponde a la especificación estándar JEDEC TO-92 (ON Semiconductor / Motorola / Fairchild para 2N2222A y 2N3906). No obstante, algunos fabricantes o clones asiáticos pueden presentar distribuciones alternativas (ej. E-C-B o C-B-E). **Es obligatorio comprobar las uniones B-E y B-C con la función de prueba de diodos del multímetro antes de soldar o energizar**.
+- **Q1 (Transistor NPN, e.g. 2N2222A / PN2222A / P2N2222A - TO-92):**
+  * `Emisor (E)`: Conectado firmemente a GND común.
+  * `Base (B)`: Conectada al divisor de entrada desde GPIO 18 vía $R_1 = 2.2\,\text{k}\Omega$ y con $R_{pd1} = 10\,\text{k}\Omega$ a GND.
+  * `Colector (C)`: Conectado a la Base de Q2 vía $R_2 = 2.2\,\text{k}\Omega$.
+- **Q2 (Transistor PNP, e.g. 2N3906 - TO-92):**
+  * `Emisor (E)`: Conectado directamente al riel de potencia de $+5.0\,\text{V}$ DC regulado.
+  * `Base (B)`: Conectada al Colector de Q1 mediante $R_2 = 2.2\,\text{k}\Omega$ y polarizada a $+5.0\,\text{V}$ mediante $R_{pu} = 10\,\text{k}\Omega$.
+  * `Colector (C)`: Conectado directamente a la Compuerta (Gate) de Q3 (M1), con resistencia pull-down de descarga $R_{pd2} = 10\,\text{k}\Omega$ a GND.
+- **M1 / Q3 (N-MOSFET Logic-Level Vishay IRLZ44N - TO-220):**
+  * Pin 1 (`Gate`): Desde Colector de Q2, retenido a GND mediante $R_{pd2} = 10\,\text{k}\Omega$.
+  * Pin 2 / Tab (`Drain`): Conectado al borne negativo de la microbomba JT-DC3W (retorno conmutado).
+  * Pin 3 (`Source`): Conectado directamente a la masa común (GND).
+- **D1 (Diodo Schottky 1N5819):**
+  * `Cátodo` (banda plateada): Conectado al borne positivo (+5V) del motor.
+  * `Ánodo`: Conectado al borne negativo (Drain de Q3) del motor. Montaje en antiparalelo directo sobre los bornes de la bomba.
 
 #### Cálculo Nodal Riguroso de Polarización y Margen de Saturación:
 1. **Etapa de Entrada Q1 (NPN):**

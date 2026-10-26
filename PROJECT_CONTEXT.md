@@ -73,11 +73,13 @@ El firmware adopta una **Arquitectura en Capas Desacoplada (Layered Architecture
 - **Microcontrolador:** ESP-WROOM-32 (30 pines, lógica 3.3 V).
 - **Sensor de suelo capacitivo v1.2:** **Obligatoriamente alimentado a 3.3V** (salida analógica $\le 2.9\,\text{V}$ conectada a `GPIO 34` / ADC1_CH6 para proteger el conversor del microcontrolador).
 - **Driver de bomba (Etapa Bipolar No Inversora NPN+PNP de 2 Etapas):**
-  - **Q1 (NPN 2N2222A - Traslador de Nivel):**
+  - **Q1 (Transistor NPN - Traslador de Nivel - CRIT-01):**
+    * *Nota Mandatoria de Encapsulado:* Conexiones referenciadas por función lógica (`E`, `B`, `C`), no por número de pin fijo. En variantes TO-92 como `P2N2222A` (onsemi) el orden es C-B-E (pines 1-2-3), mientras que en `PN2222A` o genéricos es E-B-C. Verificación con hoja técnica y multímetro obligatoria antes de soldar.
     * Base: Conectada a `GPIO 18` vía $R_1 = 2.2\,\text{k}\Omega$; pull-down $R_{pd1} = 10\,\text{k}\Omega$ a GND.
-    * Emisor: A GND.
+    * Emisor: A GND común.
     * Colector: A Base de Q2 vía $R_2 = 2.2\,\text{k}\Omega$.
-  - **Q2 (PNP 2N3906 - Conmutador de Potencia de Compuerta a +5V):**
+  - **Q2 (Transistor PNP - Conmutador de Potencia de Compuerta a +5V - CRIT-01):**
+    * *Nota Mandatoria de Encapsulado:* Conexiones por función lógica (`E`, `B`, `C`). Típicamente E-B-C en 2N3906, sujeto a comprobación física.
     * Emisor: Al riel de potencia de `+5V`.
     * Base: Conectada al Colector de Q1 vía $R_2 = 2.2\,\text{k}\Omega$; pull-up $R_{pu} = 10\,\text{k}\Omega$ a `+5V`.
     * Colector: Al Gate del MOSFET Q3.
@@ -110,16 +112,22 @@ El firmware adopta una **Arquitectura en Capas Desacoplada (Layered Architecture
 
 ---
 
-## 📊 5. Estado Actual de Git, CI y Compilación (Commit de Referencia)
-- **Rama:** `main`
-- **Commit Publicado:** `45fff8516f0996d9008c5fbe73a0fcde5ecbccf9` (`fix(ci): quote test step name to fix YAML syntax error in workflow`)
-- **Estado de CI en GitHub Actions:**
-  - **Run ID:** `40367863193`
-  - **Resultado:** **`SUCCESS`** (Completado en 1m 6s el 2026-10-26T17:21:35Z).
-  - **URL:** [https://github.com/Kxvinnnn/smart-floracare/actions/runs/40367863193](https://github.com/Kxvinnnn/smart-floracare/actions/runs/40367863193)
-- **Métricas de Compilación PlatformIO:**
+## 📊 5. Estado Actual de Git, Ramas, CI y Compilación (OBL-03)
+
+- **Rama Base Estable:** `main`
+  * **Commit Base de Referencia:** `45fff8516f0996d9008c5fbe73a0fcde5ecbccf9` (`fix(ci): quote test step name to fix YAML syntax error in workflow`)
+  * **Estado de CI en GitHub Actions:** Run ID `40367863193` — **`SUCCESS`** (Completado en 1m 6s el 2026-10-26T17:21:35Z).
+- **Rama de Revisión y Auditoría Activa:** `audit/documentation-review`
+  * **Punta Auditada en GitHub:** Commit `bca15cd9a76b83f9f1ea6b8528a92878eb66e2d4` (`docs(audit): reconcile electrical driver, BOM itemization, and bench test protocols`).
+  * **Dictamen de Auditoría Recibido:** 1 Crítico (CRIT-01 pinout Q1), 3 Obligatorios (OBL-01 HTTP ACT-06, OBL-02 osciloscopio ACT-04, OBL-03 sincronización de rama), 3 Menores (MEN-01 umbral compuerta, MEN-02 carga ACT-02, MEN-03 etiqueta REQ-26), 5 Conformes (CONF-01 a CONF-05).
+  * **Estado de CI en rama de auditoría:** No se ejecutan flujos de Actions automáticos en ramas aisladas de revisión sin PR hacia `main`.
+- **Métricas de Compilación PlatformIO (Reproducibles Localmente):**
   - `nanoatmega328`: Flash: 17,554 B (57.1%), RAM: 614 B (30.0%) — **SUCCESS**
   - `esp32dev`: Flash: 1,082,115 B (82.6%), RAM: 49,412 B (15.1%) — **SUCCESS**
+- **Estado de Pruebas Físicas e Integración Eléctrica:**
+  - Protocolo ACT-01 a ACT-06 formalizado como `LISTA PARA BANCO`, pero **estrictamente pendiente de ejecución y medición física en silicio**.
+  - **Circuito físico:** Completamente desenergizado (0 V).
+  - **Microbomba sumergible JT-DC3W:** Físicamente desconectada de la etapa de potencia.
 
 ---
 

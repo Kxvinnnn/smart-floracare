@@ -117,7 +117,17 @@ Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes
 2. **Objetivo:** Comprobar que el circuito de adaptación de 2 etapas NPN+PNP entrega una tensión de compuerta plena ($V_{GS} \ge 4.50\,\text{V}$) al ser activado desde el GPIO de 3.3 V del ESP32, asegurando saturación profunda del MOSFET IRLZ44N dentro de especificación de catálogo ($R_{DS(on)} \le 0.035\,\Omega$).
 3. **Riesgo cubierto:** Conducción parcial del MOSFET a 3.3V, sobrecalentamiento por resistencia de canal elevada y fallo de par de arranque de la bomba.
 4. **Equipo e instrumentos:** Multímetro Digital (DMM) calibrado (resolución 1 mV).
-5. **Montaje:** Driver NPN+PNP conectado a GPIO 18 del ESP32 y riel +5V de la fuente. Carga simulada con resistor de potencia de $15\,\Omega$ 5W (simulando corriente nominal de ~330 mA).
+5. **Montaje y Trayectoria Eléctrica Explícita (MEN-02):**
+   - **Pre-driver:** Conectar Base de Q1 a GPIO 18 vía $R_1 = 2.2\,\text{k}\Omega$ (con $R_{pd1} = 10\,\text{k}\Omega$ a GND); Emisor de Q1 a GND; Colector de Q1 a Base de Q2 vía $R_2 = 2.2\,\text{k}\Omega$.
+   - **Etapa PNP:** Emisor de Q2 al riel de $+5.0\,\text{V}$ estabilizado; Base de Q2 polarizada con $R_{pu} = 10\,\text{k}\Omega$ a $+5.0\,\text{V}$; Colector de Q2 a Gate de Q3 (con $R_{pd2} = 10\,\text{k}\Omega$ a GND).
+   - **Carga de Prueba de Bajo Lado (Low-Side Test Load):**
+     * Conectar un extremo de la resistencia de potencia de $15\,\Omega$, $5\,\text{W}$ directamente al riel de $+5.0\,\text{V}$ de la fuente externa.
+     * Conectar el segundo extremo de la resistencia al terminal Drenador (Drain, pin 2) del MOSFET Q3 (Nodo N6).
+     * Conectar el terminal Fuente (Source, pin 3) del MOSFET Q3 directamente a la masa común (GND).
+     * *Comprobación de disipación y corriente teórica:* $I = \frac{5.0\,\text{V}}{15\,\Omega} \approx 0.333\,\text{A} = 333\,\text{mA}$; $P = \frac{V^2}{R} = \frac{25}{15} \approx 1.67\,\text{W}$ (margen nominal de 5W adecuado para pulsos de prueba).
+   - **Verificación de Corriente y Parada de Emergencia:**
+     * Intercalar amperímetro en serie (escala 10 A o 2 A DC) entre la resistencia y el Drain, o medir tensión en bornes de la resistencia ($I = V_R / 15\,\Omega$).
+     * *Parada de Emergencia:* Si la resistencia se sobrecalienta excesivamente ($> 60^\circ\text{C}$ al tacto) o si la tensión $V_{DS}$ supera $0.50\,\text{V}$ durante el pulso, cortar de inmediato el interruptor de la fuente de $+5\,\text{V}$.
 6. **Precondiciones:** ACT-01 aprobada. Firmware configurado para emitir comando de riego manual de 3 s.
 7. **Procedimiento:**
    - Activar el riego manual mediante pulsador.
@@ -167,19 +177,25 @@ Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes
 1. **Identificador:** `ACT-04`
 2. **Objetivo:** Capturar mediante osciloscopio el pico de fuerza contraelectromotriz (Back-EMF) generado en el borne negativo de la bomba al conmutar de conducción a corte, verificando que el diodo Schottky 1N5819 suprime el transitorio de forma segura por debajo de 6.0 V.
 3. **Riesgo cubierto:** F-06 (Destrucción por sobretensión del canal del MOSFET, reinicios espurios de CPU por acoplamiento de ruido en el riel de alimentación).
-4. **Equipo e instrumentos:** Osciloscopio Digital con memoria (ancho de banda $\ge 20\,\text{MHz}$), sonda 10X compensada, trigger en flanco de subida en modo disparo único (*Single Shot*).
-5. **Montaje:** Conexión de sonda de osciloscopio: Pinza de tierra al Source (GND común); punta de sonda directamente sobre el pin Drain (Pin 2) del IRLZ44N. Bomba sumergible conectada en agua. Diodo 1N5819 soldado en antiparalelo directo a bornes del motor.
+4. **Equipo e instrumentos:** Osciloscopio Digital con memoria (ancho de banda $\ge 20\,\text{MHz}$), sonda pasiva 10X compensada con cable de masa corto para evitar inductancia espuria en la punta, acoplamiento DC, trigger en flanco de subida en modo disparo único (*Single Shot* o *Normal*).
+5. **Montaje:** Conexión de sonda de osciloscopio: Pinza de tierra al Source (GND común); punta de sonda directamente sobre el pin Drain (Pin 2 / Tab) del IRLZ44N (Nodo N6). Bomba sumergible conectada en agua. Diodo 1N5819 soldado en antiparalelo directo a bornes del motor (cátodo a +5V, ánodo a Drain).
 6. **Precondiciones:** ACT-03 aprobada. Confirmación visual y por multímetro de la polaridad del diodo (cátodo con banda plateada conectado al riel +5V; ánodo a Drain).
-7. **Procedimiento:**
-   - Configurar osciloscopio: Escala vertical 2.0 V/div, escala horizontal 500 ns/div (y ráfaga secundaria a 2 $\mu$s/div), nivel de trigger fijado en +5.5 V.
-   - Ejecutar un pulso de conmutación de 1 segundo de la bomba.
-   - Capturar el oscilograma del momento exacto del corte de corriente.
-   - Medir la amplitud máxima del sobreimpulso ($V_{\text{peak}}$) y el tiempo de supresión ($t_{\text{clamp}}$).
-8. **Mediciones a registrar:** $V_{\text{peak}}$, tiempo de retorno a 5.0 V, presencia de timbreo parásito (*ringing*).
+7. **Procedimiento de Captura en Dos Pasos (OBL-02):**
+   - **Configuración del Nivel de Trigger:**
+     * Nivel de trigger fijado en **$+4.50\,\text{V}$** (con flanco de subida `Rising Edge`) sobre la señal de Drenador (Nodo N6).
+     * *Justificación del umbral de disparo:* En conducción, el drenador se encuentra en $V_{DS} \le 0.05\,\text{V}$. Al apagarse el MOSFET, la tensión asciende desde $\approx 0\,\text{V}$ hacia $+5.0\,\text{V}$, cruzando limpiamente el umbral de $+4.50\,\text{V}$ antes de alcanzar el pico flyback ($5.35\text{--}5.45\,\text{V}$). Un trigger previo de $+5.5\,\text{V}$ impedía el disparo al recortar el diodo Schottky eficazmente por debajo de dicho valor.
+   - **Paso 1: Captura Macroscópica de Desconexión:**
+     * Escala vertical: $1.0\,\text{V}/\text{div}$ o $2.0\,\text{V}/\text{div}$.
+     * Base de tiempos: $20\,\mu\text{s}/\text{div}$ (o $10\,\mu\text{s}/\text{div}$).
+     * Ejecutar un pulso de conmutación de 1 s de la bomba. Capturar la transición completa para descartar rebotes o perturbaciones de baja frecuencia en el riel.
+   - **Paso 2: Captura Detallada del Transitorio Rápido (Zoom Flyback):**
+     * Mantener trigger en $+4.50\,\text{V}$, ajustar base de tiempos a $500\,\text{ns}/\text{div}$ (o $1\,\mu\text{s}/\text{div}$).
+     * Capturar el instante del corte de corriente y medir con cursores la amplitud máxima del sobreimpulso ($V_{\text{peak}}$) y el tiempo de restablecimiento ($t_{\text{clamp}}$).
+8. **Mediciones a registrar:** Modelo del osciloscopio, atenuación de sonda (10X), nivel de trigger fijado ($+4.50\,\text{V}$), $V_{\text{peak}}$ en Drain, tiempo de retorno a $+5.0\,\text{V}$, presencia de timbreo parásito (*ringing*).
 9. **Criterios de aceptación cuantificables:**
-   - Tensión máxima de pico en Drain: **$V_{\text{peak}} \le 6.0\,\text{V}$** (Criterio de aceptación estricto; el MOSFET soporta $55\,\text{V}$, pero el diodo debe absorber el pico a $V_{\text{fuente}} + V_F \approx 5.0\,\text{V} + 0.45\,\text{V} = 5.45\,\text{V}$).
+   - Tensión máxima de pico en Drain: **$V_{\text{peak}} \le 6.0\,\text{V}$** (Nominal esperado con diodo Schottky 1N5819: $V_{\text{fuente}} + V_F \approx 5.0\,\text{V} + 0.40\,\text{V} \approx \mathbf{5.40\,\text{V}}$).
    - Ausencia de oscilaciones no amortiguadas que superen 6.0 V.
-10. **Resultado esperado:** Pico recortado limpiamente en $\approx 5.4\,\text{V}$ sin rebotes destructivos.
+10. **Resultado esperado:** Disparo garantizado en $+4.50\,\text{V}$, pico recortado limpiamente en $\approx 5.40\,\text{V}$ sin rebotes destructivos.
 11. **Resultado real:** PENDIENTE DE MEDICIÓN EN BANCO.
 12. **Evidencia:** Captura de pantalla del osciloscopio (.PNG / .CSV) con cursores de tensión (Pendiente).
 13. **Estado:** `LISTA PARA BANCO`.
@@ -204,7 +220,7 @@ Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes
    - Boya baja (sin agua): Contacto abierto, $V_{\text{in}} \ge 3.00\,\text{V}$ en ESP32 / $\ge 4.50\,\text{V}$ en Nano (`digitalRead == HIGH`).
    - Cable desconectado: Entrada traccionada a nivel alto por `INPUT_PULLUP` $\implies$ estado seguro (`LOW WATER`).
    - Tiempo de detención de bomba ante caída de nivel: $\le 50\,\text{ms}$ (dentro del ciclo de debouncing).
-   - Tensión en compuerta de MOSFET ante fallo: estrictamente $0.00\,\text{V}$.
+   - Tensión en compuerta de MOSFET ante fallo (MEN-01): **$V_{GS} \le 0.10\,\text{V}$** (Criterio instrumental reproducible unificado con ACT-01; corte seguro garantizado, muy por debajo del umbral mínimo de conducción $V_{GS(th)} \ge 1.0\,\text{V}$).
 10. **Resultado esperado:** Bloqueo total e inmediato de la bomba, transición a `FAULT`, advertencia acústica y visual activa.
 11. **Resultado real:** PENDIENTE DE MEDICIÓN EN BANCO.
 12. **Evidencia:** Captura de log serie y video de respuesta de corte (Pendiente).
@@ -213,45 +229,59 @@ Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes
 
 ---
 
-### ACT-06: Watchdog de Seguridad, Recuperación de FSM y Validación de Servicio HTTP Real
+### ACT-06: Watchdog de Seguridad, Recuperación de FSM y Validación de Servicio HTTP Real (OBL-01)
 1. **Identificador:** `ACT-06`
-2. **Objetivo:** Verificar en silicio real los dos bloques críticos de recuperación y servicio: (A) Disparo y corte incondicional del Watchdog Timer de seguridad a los 25.0 segundos exactos ante fallo de humedad, con respeto estricto del periodo de enfriamiento (cooldown de 5.0 s); y (B) Respuesta del servidor HTTP real compilado en el ESP32 ante llamadas válidas e inválidas, validación de cabeceras, rate limiting y estabilidad de memoria heap libre.
+2. **Objetivo:** Verificar en silicio real los dos subprotocolos críticos de recuperación y servicio:
+   - **Subprotocolo ACT-06.A (Watchdog y FSM):** Disparo y corte incondicional por Watchdog Timer de seguridad a los 25.0 segundos ante fallo de humedad, con respeto estricto del periodo de enfriamiento (*cooldown* de 5.0 s) e inhibición de rearme.
+   - **Subprotocolo ACT-06.B (Seguridad HTTP, Rate Limiter y Control de Actuador):** Respuesta determinista del servidor WebServer real compilado en el ESP32 ante 7 escenarios HTTP estructurados, verificación del limitador de frecuencia (429), prevención de rebotes entre fallos de autenticación y preservación del apagado de la bomba ante peticiones rechazadas.
 3. **Riesgo cubierto:** F-05 (Watchdog de software), F-08, F-16, F-17, F-18 (Seguridad HTTP, ataques de temporización, desbordamiento de memoria heap en silicio).
-4. **Equipo e instrumentos:** Cronómetro digital calibrado, estación de trabajo con Python / cURL / Postman conectada a la misma subred Wi-Fi privada del ESP32, Monitor Serie a 115200 baudios.
-5. **Montaje:** ESP32 DevKit V1 conectado a red local de laboratorio privada (VLAN IoT aislada). Sonda capacitiva mantenida en aire seco (<20% de humedad) para forzar demanda de riego continuo.
+4. **Equipo e instrumentos:** Cronómetro digital calibrado, estación de trabajo con Python / cURL / Postman conectada a la misma subred Wi-Fi privada del ESP32, Monitor Serie a 115200 baudios, Multímetro monitoreando N5 ($V_{GS}$) y N6 ($V_{DS}$).
+5. **Montaje:** ESP32 DevKit V1 conectado a red local de laboratorio privada (VLAN IoT aislada). Sonda capacitiva mantenida en aire seco (<20% de humedad) para forzar demanda de riego continuo. Bomba monitoreada eléctricamente (se permite mantener la bomba sumergida o sustituida por carga de prueba).
 6. **Precondiciones:** ACT-01 a ACT-05 aprobadas. Archivo `Credentials.h` configurado con token seguro de más de 16 caracteres no predeterminado.
-7. **Procedimiento:**
+7. **Procedimiento Operativo:**
 
-   #### Bloque A: Firmware y Watchdog de Seguridad
+   #### Subprotocolo ACT-06.A: Firmware y Watchdog de Seguridad
    - Con el sensor en aire seco (<20%), permitir que el controlador inicie el riego automático.
    - Iniciar simultáneamente el cronómetro.
    - Dejar correr el ciclo sin humedecer el sensor (simulando rotura de tubería o sonda fuera de maceta).
    - Registrar el instante exacto en que el firmware corta la alimentación de la bomba.
    - Pulsar de forma insistente el botón manual durante los siguientes 5 segundos para verificar la inhibición por periodo de enfriamiento (*cooldown*).
 
-   #### Bloque B: Servidor HTTP Real en Silicio (ESP32 WebServer)
-   - Realizar 6 llamadas HTTP de prueba dirigidas a la IP real del ESP32 (`http://<IP_ESP32>/api/water`):
-     1. `GET /api/water` $\to$ Debe responder con código `405 Method Not Allowed`.
-     2. `POST /api/water` sin token $\to$ Debe responder `401 Unauthorized`.
-     3. `POST /api/water` con token inválido $\to$ Debe responder `401 Unauthorized` y activar ventana de rate limiting.
-     4. `POST /api/water` repetido en $< 1000\,\text{ms}$ $\to$ Debe responder de inmediato con `429 Too Many Requests`.
-     5. `POST /api/water` con origen cruzado `Origin: http://malicious-site.com` $\to$ Debe responder `403 Forbidden`.
-     6. `POST /api/water` con cuerpo sobredimensionado ($> 256$ bytes) $\to$ Debe responder `413 Payload Too Large`.
-     7. `POST /api/water` con cabecera `Authorization: Bearer <TOKEN_VALIDO>` y origen canónico $\to$ Debe responder `303 See Other`, encender la bomba durante exactamente 3.0 s y apagarse limpiamente.
-   - Monitorear a través del puerto serie el valor de `ESP.getFreeHeap()` antes, durante y después de la ráfaga de pruebas.
+   #### Subprotocolo ACT-06.B: Secuencia Estructurada de 7 Escenarios HTTP (ESP32 WebServer)
+   Ejecutar en orden estricto los siguientes 7 escenarios mediante cURL, registrando código devuelto, tiempo y estado de bomba:
 
-8. **Mediciones a registrar:** Tiempo exacto de corte por watchdog ($T_{\text{wdt}}$), tiempo de cooldown ($T_{\text{cool}}$), códigos de estado HTTP observados, tiempos de respuesta de la API, memoria heap inicial ($Heap_{\text{init}}$), memoria heap final ($Heap_{\text{final}}$).
+   | ID Escenario | Petición y Cabeceras HTTP | Condición Previa / Intervalo | Código Esperado | Estado de Bomba |
+   | :--- | :--- | :--- | :---: | :---: |
+   | **HTTP-REQ-01** | `GET /api/water` | Inicio de suite | **`405 Method Not Allowed`** | OFF ($V_{GS} \le 0.10\,\text{V}$) |
+   | *Espera 1* | Pausa entre peticiones | Esperar $500\,\text{ms}$ | -- | Inactiva |
+   | **HTTP-REQ-02** | `POST /api/water` (Sin cabecera `Authorization` ni token) | Ausencia de credenciales | **`401 Unauthorized`** | OFF ($V_{GS} \le 0.10\,\text{V}$) |
+   | *Reinicio Rate Limiter* | **Pausa de Despenalización Obligatoria** | **Esperar $\ge 1.500\,\text{ms}$** (supera ventana de 1.000 ms) | -- | Inactiva |
+   | **HTTP-REQ-03** | `POST /api/water` con `Authorization: Bearer TOKEN_INVALIDO` | Credencial errónea tras reset | **`401 Unauthorized`** | OFF ($V_{GS} \le 0.10\,\text{V}$) |
+   | **HTTP-REQ-04** | `POST /api/water` con cualquier payload | **Ráfaga inmediata ($< 100\,\text{ms}$ tras REQ-03)** | **`429 Too Many Requests`** | OFF ($V_{GS} \le 0.10\,\text{V}$) |
+   | *Reinicio Rate Limiter* | **Pausa de Despenalización Obligatoria** | **Esperar $\ge 1.500\,\text{ms}$** (supera ventana de 1.000 ms) | -- | Inactiva |
+   | **HTTP-REQ-05** | `POST /api/water` con token válido pero `Origin: http://sitio-malicioso.com` | Intento CSRF con origen cruzado | **`403 Forbidden`** | OFF ($V_{GS} \le 0.10\,\text{V}$) |
+   | *Espera 2* | Pausa entre peticiones | Esperar $500\,\text{ms}$ | -- | Inactiva |
+   | **HTTP-REQ-06** | `POST /api/water` con token válido pero cuerpo $> 256$ bytes | Carga útil sobredimensionada | **`413 Payload Too Large`** | OFF ($V_{GS} \le 0.10\,\text{V}$) |
+   | *Espera 3* | Pausa entre peticiones | Esperar $500\,\text{ms}$ | -- | Inactiva |
+   | **HTTP-REQ-07** | `POST /api/water` con token válido, `Origin` canónico y body válido | Petición legítima autorizada | **`303 See Other`** | **ON durante $3.0\,\text{s}$** luego OFF |
+
+   - Monitorear en el Monitor Serie el valor de `ESP.getFreeHeap()` antes de iniciar REQ-01 y tras finalizar REQ-07.
+
+8. **Mediciones a registrar:**
+   - Subprotocolo A: Tiempo exacto de corte por watchdog ($T_{\text{wdt}}$), duración del cooldown ($T_{\text{cool}}$).
+   - Subprotocolo B: Códigos de estado HTTP para REQ-01 a REQ-07, confirmación de bomba inactiva en REQ-01..06, duración de pulso en REQ-07, telemetría de heap ($Heap_{\text{init}}$, $Heap_{\text{final}}$).
 9. **Criterios de aceptación cuantificables:**
-   - **Bloque A:** $T_{\text{wdt}} = 25.0\,\text{s} \pm 0.5\,\text{s}$; transición obligatoria a `FAULT(MAX_TIMEOUT_EXCEEDED)`. Inhibición de rearme manual durante $5.0\,\text{s} \pm 0.5\,\text{s}$.
-   - **Bloque B:**
-     - 100% de coincidencia en los códigos de estado HTTP (405, 401, 429, 403, 413, 303).
-     - Riego activado exclusivamente en la llamada legítima número 7 (duración: $3.0\,\text{s} \pm 0.2\,\text{s}$). En todas las llamadas rechazadas (1 a 6), la bomba debe permanecer **estrictamente apagada**.
-     - Estabilidad de memoria heap: $\Delta Heap = Heap_{\text{init}} - Heap_{\text{final}} \le 200\,\text{bytes}$ tras el ciclo completo de peticiones (cero fugas de memoria persistentes).
-10. **Resultado esperado:** Watchdog corta a los 25 s; respuestas HTTP exactas sin cuelgues ni fugas de heap.
+   - **Criterio A (Watchdog):** $T_{\text{wdt}} = 25.0\,\text{s} \pm 0.5\,\text{s}$; transición obligatoria a `FAULT(MAX_TIMEOUT_EXCEEDED)`. Inhibición de rearme manual durante $5.0\,\text{s} \pm 0.5\,\text{s}$. Tensión en compuerta $V_{GS} \le 0.10\,\text{V}$.
+   - **Criterio B (HTTP y Rate Limiting):**
+     * Coincidencia estricta y secuencial en los 7 códigos HTTP: `405`, `401`, `401`, `429`, `403`, `413`, `303`.
+     * Bomba estrictamente apagada ($V_{GS} \le 0.10\,\text{V}$) en los escenarios 1 a 6.
+     * Riego accionado exclusivamente en REQ-07 con duración de pulso de $3.0\,\text{s} \pm 0.2\,\text{s}$.
+     * Estabilidad de memoria heap: $\Delta Heap = Heap_{\text{init}} - Heap_{\text{final}} \le 200\,\text{bytes}$ tras completar los 7 escenarios.
+10. **Resultado esperado:** Watchdog actúa exactamente a 25 s; suite de 7 escenarios HTTP cumple secuencialmente sin falsos positivos de rate limiting ni fugas de memoria.
 11. **Resultado real:** PENDIENTE DE MEDICIÓN EN BANCO.
-12. **Evidencia:** Registros de terminal de cURL con cabeceras completas y captura de log serie con telemetría de heap (Pendiente).
+12. **Evidencia:** Registros de cURL con timestamps y log serie con lecturas de heap (Pendiente).
 13. **Estado:** `LISTA PARA BANCO`.
-14. **Observaciones y acciones correctivas:** Si se detecta fuga de heap acumulativa tras ráfagas HTTP, revisar la liberación de instancias `String` en los manejadores de ruta del ESP32.
+14. **Observaciones y acciones correctivas:** Si REQ-03 devuelve 429 en lugar de 401, incrementar la pausa de despenalización a 2.000 ms. Si se detecta fuga de heap acumulativa, revisar instancias `String` en los callbacks de `WebServer`.
 
 ---
 
