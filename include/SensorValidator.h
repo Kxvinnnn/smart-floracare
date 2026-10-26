@@ -23,11 +23,11 @@ enum class SensorHealth : uint8_t {
 };
 
 struct CalibrationProfile {
-    uint16_t airRaw;          // Lectura en aire seco (0% humedad estimada)
-    uint16_t waterRaw;        // Lectura en agua limpia (100% humedad estimada)
-    uint16_t minPhysLimit;    // Límite inferior físico admisible del ADC
-    uint16_t maxPhysLimit;    // Límite superior físico admisible del ADC
-    uint16_t minDelta;        // Mínima diferencia requerida (airRaw - waterRaw)
+    uint16_t airRaw;          // Lectura base seca (0% de escala: aire libre o sustrato seco)
+    uint16_t waterRaw;        // Lectura base húmeda (100% de escala: agua líquida o sustrato a capacidad de campo)
+    uint16_t minPhysLimit;    // Límite inferior físico admisible del ADC (menor a esto implica corto/masa)
+    uint16_t maxPhysLimit;    // Límite superior físico admisible del ADC (mayor a esto implica desconexión)
+    uint16_t minDelta;        // Excursión mínima (airRaw - waterRaw) para validar que el sensor no esté degradado
 };
 
 class SensorValidator {

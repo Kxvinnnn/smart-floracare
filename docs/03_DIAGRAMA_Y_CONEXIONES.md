@@ -46,10 +46,12 @@ Este documento proporciona los esquemas detallados de cableado pin a pin para la
 | | `GND` | `GND` | Tierra común |
 | | `SCL` | `GPIO 22` | Reloj I2C por defecto en ESP32 |
 | | `SDA` | `GPIO 21` | Datos I2C por defecto en ESP32 |
-| **Driver de Bomba (Opción Oficial ESP32)** | `IN / Trigger` | `GPIO 18` (vía R 1 kΩ) | Módulo MOSFET LR7843 / AOD4184 con optoacoplador o Módulo Relé 5V (disparo garantizado a 3.3V) |
-| **Driver de Bomba (Alternativa Experimental)** | `Gate` | `GPIO 18` (vía R 1 kΩ) | IRLZ44N discreto (sujeto a validación en banco de $V_{GS} \ge 3.1\,\text{V}$ y $V_{DS} \le 0.05\,\text{V}$). Pull-down 10 kΩ |
-| | `Source` | `GND` | Tierra común |
-| | `Drain` | Bomba (-) | Retorno conmutado a tierra |
+| **Driver de Bomba (Opción Oficial ESP32: Driver No Inversor)** | Control Input | GPIO 18 (vía R1 2.2 kΩ) | Base de Q1 (2N2222A) con pull-down 10 kΩ a GND. Activo en HIGH |
+| | Etapa Alta | Emisor Q2 a +5V | Q2 (2N3906 PNP) con pull-up 10 kΩ a +5V y base a colector Q1 vía R2 2.2 kΩ |
+| | Salida a Gate| Colector Q2 | Conectado a Gate del IRLZ44N con pull-down 10 kΩ a GND (conmuta a ~4.85V) |
+| | Source | GND | Tierra común unificada |
+| | Drain | Bomba (-) | Retorno conmutado del motor a tierra |
+| **Driver de Bomba (Alternativas Comerciales Verificadas)** | TRIG / IN | GPIO 18 | Módulo HW-517 (Dual AOD4184A) o Módulo Relé 5V en HIGH Trigger (condicionados a ensayo de banco) |
 | **Bomba Sumergible 5V** | Positivo (+) | `+5V` (Fuente externa) | Conexión directa a fuente 5V 2A/3A |
 | | Negativo (-) | `Drain` (MOSFET) | Conmutado |
 | **Diodo Flyback (1N5819 / 1N4007)** | Cátodo (Banda) | Bomba (+) / `+5V` | En antiparalelo directo a bornes del motor |
@@ -181,6 +183,24 @@ En el ESP32 (lógica de 3.3V), la compuerta del IRLZ44N **no debe conectarse dir
 - **Q2 (2N3906 - PNP TO-92):** Pin 1 = Emisor (a +5.0V), Pin 2 = Base (con $R_{pu} = 10\,\text{k}\Omega$ a +5V y $R_2 = 2.2\,\text{k}\Omega$ a Colector Q1), Pin 3 = Colector (a Gate de M1).
 - **M1 (IRLZ44N - N-MOSFET TO-220):** Pin 1 = Gate (desde Colector Q2 con $R_{pd2} = 10\,\text{k}\Omega$ a GND), Pin 2 = Drain (a retorno de bomba), Pin 3 = Source (a GND).
 - **D1 (1N5819 Schottky):** Cátodo (franja plateada) al borne positivo (+5V) del motor; Ánodo al borne negativo (Drain) del motor.
+
+> [!WARNING] Verificación Obligatoria de Pines del Transistor Comprado
+> La distribución indicada (Pin 1=Emisor, Pin 2=Base, Pin 3=Colector con cara plana frontal y patas hacia abajo) corresponde a la especificación estándar JEDEC TO-92 (ON Semiconductor / Motorola / Fairchild para 2N2222A y 2N3906). No obstante, algunos fabricantes o clones asiáticos pueden presentar distribuciones alternativas (ej. E-C-B o C-B-E). **Es obligatorio comprobar las uniones B-E y B-C con la función de prueba de diodos del multímetro antes de soldar o energizar**.
+
+#### Cálculo Nodal Riguroso de Polarización y Margen de Saturación:
+1. **Etapa de Entrada Q1 (NPN):**
+   - El circuito equivalente de Thévenin en la base de Q1, formado por el GPIO a $3.3\,\text{V}$, $R_1 = 2.2\,\text{k}\Omega$ y $R_{pd1} = 10\,\text{k}\Omega$, entrega $V_{TH} = 3.3 \times \frac{10}{12.2} \approx 2.70\,\text{V}$ y $R_{TH} = 2.2 \parallel 10 \approx 1.80\,\text{k}\Omega$.
+   - Con $V_{BE1(sat)} \approx 0.70\,\text{V}$, la corriente real de base es:
+     $$I_{B1} = \frac{2.70\,\text{V} - 0.70\,\text{V}}{1800\,\Omega} \approx 1.11\,\text{mA}$$
+2. **Etapa Intermedia Q2 (PNP):**
+   - Con Q1 saturado ($V_{CE1(sat)} \approx 0.1\,\text{V}$), la corriente total de colector drenada a través de $R_2 = 2.2\,\text{k}\Omega$ es $I_{C1} = \frac{5.0 - 0.7 - 0.1}{2200} \approx 1.91\,\text{mA}$.
+   - Descontando la corriente de fuga de $R_{pu}$ ($0.7\,\text{V} / 10\,\text{k}\Omega = 0.07\,\text{mA}$), la corriente neta de base de Q2 es $I_{B2} \approx 1.84\,\text{mA}$.
+   - Ganancia forzada en Q1: $\beta_{forced, Q1} = \frac{1.91\,\text{mA}}{1.11\,\text{mA}} \approx 1.72 \ll 10$. **Saturación ultra profunda asegurada.**
+3. **Etapa de Salida hacia Compuerta:**
+   - En régimen continuo, la compuerta del MOSFET solo drena la corriente de la resistencia de descarga $R_{pd2} = 10\,\text{k}\Omega$:
+     $$I_{C2} = \frac{V_{Gate}}{10000\,\Omega} \approx \frac{4.85\,\text{V}}{10000\,\Omega} \approx 0.485\,\text{mA}$$
+   - Ganancia forzada en Q2: $\beta_{forced, Q2} = \frac{0.485\,\text{mA}}{1.84\,\text{mA}} \approx 0.26 \ll 10$. **Saturación ultra profunda asegurada.**
+   - Tensión de compuerta resultante: $V_{Gate} = V_{fuente} - V_{EC2(sat)} \approx 5.0\,\text{V} - 0.10\,\text{V} \approx \mathbf{4.90\,\text{V}}$ (en banco real con caída de carga en la fuente: $4.70\,\text{V} - 4.90\,\text{V}$), garantizando holgadamente que el IRLZ44N opere dentro de su especificación garantizada de $R_{DS(on)} \le 0.035\,\Omega$.
 
 ---
 
