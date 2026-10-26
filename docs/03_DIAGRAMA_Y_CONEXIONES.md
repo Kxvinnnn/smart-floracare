@@ -123,59 +123,91 @@ En el ESP32 (lógica de 3.3V), la compuerta del IRLZ44N **no debe conectarse dir
 ```text
                +5V Fuente Externa Regulada (2A - 3A)
                   |
-         +--------+-----------------------+-------------------------+
-         |                                |                         |
-      [VIN Pin]                           | (Riel +5V)        Bomba 5V (+)
-    +-----------------+                   |                         |
-    |  ESP32 DEVKIT   |                   +---------------+   [ M ] (Microbomba DC)
-    |  (30 Pines)     |                   |               |         |
-    |                 |             [R_pu: 10 kΩ]   Emisor (Pin 1)  |
-    |  GPIO 18        |                   |         +-------------+ |
-    |  (Disparo 3.3V) |                   +---------| Q2: 2N3906  | |
-    |        |        |                   |         | (PNP TO-92) | |
-    |   [R1: 2.2 kΩ]  |              [R2: 2.2 kΩ]   +-------------+ |
-    |        |        |                   |         Colector (Pin 3)|
-    |        +-------+------> Base (Pin 2)|               |         |
-    |                |        +-------------+             |         |
-    |         [R_pd1: 10 kΩ]  | Q1: 2N2222A |             |         |
-    |                |        | (NPN TO-92) |             |         |
-    |               GND       +-------------+             |         |
-    |                         Emisor (Pin 1)|             |         |
-    |                               |                     |         |
-    |                              GND                    |         |
-    |                                                     |         |
-    |    Colector Q1 (Pin 3) -----------------------------+         |
-    |                                                     |         |
-    |    Salida a Compuerta (+4.85V teóricos) ------------+         |
-    |                                    +-------------+      |     |
-    |                                    |                    |     |
-    |                               Pin 1: Gate               |     |
-    |                                    |                    |     |
-    |                              [R_pd2: 10 kΩ]             |     |
-    |                                    |                    |     |
-    |                                   GND                   |     |
-    |                                                         |     |
-    |                                                 Pin 2: Drain  |
-    |                                                 +----+  |     |
-    |                                                 |    |  +-----+-----+
-    |                                                 +----+  |     |     |
-    |                                                 Pin 3:  | [1N5819]  |
-    |                                                 Source  | (Schottky)|
-    |                                                    |    +-----+-----+
-    |                                                    |          |
-    |  GPIO 23 (Buzzer)-----[220 Ω]-----> [BUZZER]-----> GND        |
-    |  GPIO 19 (Flotador)---[BOYA CS-CO058]------------> GND        |
-    |  GPIO 4  (Pulsador)---[TACT SWITCH]--------------> GND        |
-    |  GPIO 21 (SDA)--------> SDA OLED SSD1306 (0x3C)               |
-    |  GPIO 22 (SCL)--------> SCL OLED SSD1306 (0x3C)               |
-    |  3V3 Pin -------------> VCC Sensor Capacitivo v1.2 (¡3.3V!)   |
-    |  GPIO 34 (Sensor)-----> Salida Analógica Sensor Capacitivo    |
-    |                                                    |          |
-    |       GND                                          |          |
-    +--------+-------------------------------------------+----------+
+         +--------+------------------------+------------------------------+
+         |                                 |                              |
+      [VIN Pin]                            | (Riel +5V)             Bomba 5V (+)
+    +-----------------+                    |                              |
+    |  ESP32 DEVKIT   |                    +---------------+        [ M ] (Microbomba DC)
+    |  (30 Pines)     |                    |               |              |
+    |                 |              [R_pu: 10 kΩ]   Emisor (Pin 1)       |
+    |  GPIO 18        |                    |         +-------------+      |
+    |  (Disparo 3.3V) |                    +---------| Q2: 2N3906  |      |
+    |        |        |                    | (Base)  | (PNP TO-92) |      |
+    |   [R1: 2.2 kΩ]  |               [R2: 2.2 kΩ]   +-------------+      |
+    |        |        |                    |         Colector (Pin 3)     |
+    |        +--------+---> Base (Pin 2)   |               |              |
+    |        |        |    +-------------+ |               |              |
+    |  [R_pd1: 10 kΩ] |    | Q1: 2N2222A | |               |              |
+    |        |        |    | (NPN TO-92) | |               |              |
+    |       GND       |    +-------------+ |               |              |
+    |                 |     Emisor (Pin 1) |               |              |
+    |                 |            |       |               |              |
+    |                 |           GND      |               |              |
+    |                 |                    |               |              |
+    |  Colector Q1 (Pin 3) ----------------+               |              |
+    |                                                      |              |
+    |  Salida de Compuerta (+4.85V teóricos) <-------------+              |
+    |        |                                                            |
+    |        +----------------------------------------> Pin 1: Gate       |
+    |        |                                             |              |
+    |  [R_pd2: 10 kΩ]                                      |        Pin 2: Drain
+    |        |                                             |        +-----+  |
+    |       GND                                            |        | IRLZ|  +----+
+    |                                                      |        | 44N |  |    |
+    |                                                      |        +-----+  [1N5819]
+    |                                                      |           |     (Schottky)
+    |                                                      |        Pin 3:   |    |
+    |                                                      |        Source   +----+
+    |                                                      |           |          |
+    |  GPIO 23 (Buzzer)-----[220 Ω]-----> [BUZZER]-------->+          GND         |
+    |  GPIO 19 (Flotador)---[BOYA CS-CO058]--------------->+                      |
+    |  GPIO 4  (Pulsador)---[TACT SWITCH]----------------->+                      |
+    |  GPIO 21 (SDA)--------> SDA OLED SSD1306 (0x3C)      |                      |
+    |  GPIO 22 (SCL)--------> SCL OLED SSD1306 (0x3C)      |                      |
+    |  3V3 Pin -------------> VCC Sensor Capacitivo v1.2   |                      |
+    |  GPIO 34 (Sensor)-----> Señal Analógica Sensor       |                      |
+    |                                                      |                      |
+    |       GND                                            |                      |
+    +--------+---------------------------------------------+----------------------+
              |
             GND Fuente Externa (Tierra común unificada)
 ```
+
+#### 📌 Netlist y Tabla Maestra de Nodos Pin a Pin (Resolución Inequívoca):
+
+| Nodo # | Identificador | Terminales Físicos Conectados | Nivel Teórico en Reposo / Boot | Nivel Teórico en Activo (GPIO=3.3V) | Criterio de Aceptación Cuantitativo | Condiciones de Prueba y Diagnóstico Instrumental |
+| :---: | :--- | :--- | :---: | :---: | :---: | :--- |
+| **N1** | `GPIO_CTRL` | ESP32 `GPIO 18` + Terminal 1 de $R_1$ ($2.2\,\text{k}\Omega$) | $0.0\,\text{V}$ (o High-Z) | $3.3\,\text{V}$ ($V_{OH}$) | Reposo: $\le 0.10\,\text{V}$<br/>Activo: $\ge 3.00\,\text{V}$ | Salida lógica directa del microcontrolador. |
+| **N2** | `BASE_Q1` | Terminal 2 de $R_1$ ($2.2\,\text{k}\Omega$) + Terminal 1 de $R_{pd1}$ ($10\,\text{k}\Omega$) + Base (Pin 2) de Q1 (2N2222A) | $0.0\,\text{V}$ (Corte Q1) | $\approx 0.70\,\text{V}$ ($V_{BE1(on)}$) | Reposo: $\le 0.05\,\text{V}$<br/>Activo: $0.65\,\text{V} - 0.75\,\text{V}$ | **Condición:** $V_{BE1} \approx 0.70\,\text{V}$ solo indica polarización directa de la unión B-E. **No demuestra por sí solo saturación**; debe verificarse simultáneamente midiendo en N3 que $V_{CE1} \le 0.20\,\text{V}$ con $I_B \approx 1.1\,\text{mA}$. |
+| **N3** | `COL_Q1` | Colector (Pin 3) de Q1 (2N2222A) + Terminal 1 de $R_2$ ($2.2\,\text{k}\Omega$) | $+5.0\,\text{V}$ (vía $R_2$ y $R_{pu}$) | $\approx 0.10\,\text{V}$ ($V_{CE1(sat)}$) | Reposo: $\ge 4.75\,\text{V}$<br/>Activo: $\le 0.20\,\text{V}$ | Si $V_{N3} > 0.30\,\text{V}$ en activo, Q1 no está en saturación profunda (revisar $R_1$, $R_{pd1}$ o ganancia del transistor). |
+| **N4** | `BASE_Q2` | Terminal 2 de $R_2$ ($2.2\,\text{k}\Omega$) + Terminal 1 de $R_{pu}$ ($10\,\text{k}\Omega$) + Base (Pin 2) de Q2 (2N3906) | $+5.0\,\text{V}$ ($V_{EB2} = 0\,\text{V}$, Corte Q2) | **$\approx 4.30\,\text{V}$** (Conducción nominal Q2)<br/>*o bien*<br/>**$\approx 0.98\,\text{V}$** (Divisor pasivo sin carga de base) | Reposo: $\ge 4.75\,\text{V}$<br/>Activo nominal: $4.20\,\text{V} - 4.40\,\text{V}$ | **Interpretación de condiciones:**<br/>- **$4.30\,\text{V}$:** Juntura E-B polarizada en directa con emisor a +5V ($V_{N4} = 5.0 - V_{EB2}$).<br/>- **$0.98\,\text{V}$:** Divisor Thévenin formado por $R_{pu}$ y $R_2$ con $V_{C1} \approx 0.10\,\text{V}$ cuando Q2 no carga el nodo. **No sentencia falla por sí solo**: debe interpretarse en conjunto con N3, N5 y comprobación de pines (E-B-C). |
+| **N5** | `GATE_Q3` | Colector (Pin 3) de Q2 (2N3906) + Terminal 1 de $R_{pd2}$ ($10\,\text{k}\Omega$) + Gate (Pin 1) de Q3 (IRLZ44N) | $0.0\,\text{V}$ (Corte Q3 / Bomba OFF) | $\approx 4.85\,\text{V} - 4.90\,\text{V}$ ($V_{CC} - V_{EC2(sat)}$) | Reposo: $\le 0.10\,\text{V}$ (ACT-01)<br/>Activo: $\ge 4.50\,\text{V}$ (ACT-02) | **Distinción crítica:** $V_{GS} \ge 4.50\,\text{V}$ garantiza sobrevoltaje de compuerta (*overdrive*), pero **no prueba por sí sola la conducción de carga**. La conducción efectiva se verifica midiendo $V_{DS}$ en N6 y el flujo de corriente en la carga. |
+| **N6** | `DRAIN_Q3` | Drain (Pin 2) de Q3 (IRLZ44N) + Ánodo de D1 (1N5819) + Retorno (-) de la Carga Conectada | $+5.0\,\text{V}$ *(con carga conectada)*<br/>*Flotante (si no hay carga)* | Prueba LED: $< 1\,\text{mV}$<br/>Prueba Bomba: $12 - 15\,\text{mV}$ | Prueba LED: LED ON.<br/>Prueba Bomba (ACT-03): $V_{DS} \le 50\,\text{mV}$ a $350\,\text{mA}$ nominal en agua. | **Dependencia de la carga instalada:**<br/>- En reposo, N6 mide $+5.0\,\text{V}$ solo si la carga (LED+resistencia o motor) está físicamente conectada a +5V.<br/>- El criterio $V_{DS} \le 50\,\text{mV}$ aplica a la corriente nominal de la bomba en agua; no es un valor universal para cualquier carga o corriente. |
+| **N7** | `VCC_5V` | Riel +5V Fuente + Pin VIN ESP32 + Emisor (Pin 1) Q2 + Terminal 2 de $R_{pu}$ + Cátodo D1 + Positivo Carga | $+5.0\,\text{V}$ | $+5.0\,\text{V}$ (con caída admisible por carga) | $4.75\,\text{V} - 5.25\,\text{V}$ | Riel común de potencia regulada. Verificar estabilidad bajo conmutación de carga. |
+| **N8** | `GND_COMUN` | GND Fuente + GND ESP32 + Emisor (Pin 1) Q1 + Terminal 2 de $R_{pd1}$ + Terminal 2 de $R_{pd2}$ + Source (Pin 3) Q3 | $0.0\,\text{V}$ | $0.0\,\text{V}$ | $0.0\,\text{V}$ ($\Delta V < 10\,\text{mV}$ en pistas/jumpers) | Masa de referencia unificada para todas las medidas instrumentales. |
+
+#### 🔬 Interpretación Rigurosa de Diagnóstico Nodal y Condicionamiento de Estados:
+
+1. **Relación N2 (`BASE_Q1`) frente a N3 (`COL_Q1`):**
+   - Una lectura de $\approx 0.70\,\text{V}$ en N2 solo confirma que la juntura base-emisor de Q1 está polarizada en directa. **No es suficiente para declarar que el transistor está en saturación profunda**.
+   - Para que Q1 esté en saturación requerida, debe cumplirse la condición simultánea en N3 de que $V_{CE1} \le 0.20\,\text{V}$ (típicamente $0.08\text{--}0.15\,\text{V}$) con la corriente de base de diseño ($I_{B1} \approx 1.1\,\text{mA}$). Si N2 marca $0.70\,\text{V}$ pero N3 permanece en $\ge 0.50\,\text{V}$, Q1 se encuentra en región activa directa (inadecuada para conmutación).
+
+2. **Doble Régimen Nodal en N4 (`BASE_Q2`):**
+   - **Régimen Nominal ($\approx 4.30\,\text{V}$):** Se presenta cuando el transistor PNP Q2 está insertado correctamente y su juntura emisor-base conduce. Dado que su emisor está en el riel de $+5.0\,\text{V}$, la juntura fija el potencial de base en $V_B = V_E - V_{EB(on)} \approx 5.0\,\text{V} - 0.70\,\text{V} = 4.30\,\text{V}$. La corriente de base resultante es $I_{B2} \approx 1.84\,\text{mA}$, llevando a Q2 a saturación profunda ($\beta_{forced} \approx 0.26$).
+   - **Régimen de Circuito Abierto / Divisor Thévenin Pasivo ($\approx 0.98\,\text{V}$):** Ocurre si la base de Q2 no drena corriente (transistor ausente, pata de base no conectada o juntura interna abierta). En ese escenario, el nodo N4 queda determinado por el divisor resistivo formado por $R_{pu} = 10\,\text{k}\Omega$ conectada a $+5.0\,\text{V}$ y $R_2 = 2.2\,\text{k}\Omega$ conectada al colector saturado de Q1 ($V_{C1} \approx 0.10\,\text{V}$):
+     $$V_{N4(unloaded)} = 0.10\,\text{V} + (5.0\,\text{V} - 0.10\,\text{V}) \times \frac{2.2\,\text{k}\Omega}{10\,\text{k}\Omega + 2.2\,\text{k}\Omega} = 0.10 + 4.90 \times \frac{2.2}{12.2} \approx \mathbf{0.98\,\text{V}}$$
+   - **Protocolo de Diagnóstico:** Obtener $\approx 0.98\,\text{V}$ en N4 no debe diagnosticarse apresuradamente como "avería" sin antes contrastar: (a) que N3 esté en $\le 0.20\,\text{V}$, (b) que la orientación física de las patas de Q2 corresponda a Pin 1=Emisor, Pin 2=Base, Pin 3=Colector, y (c) que en N5 no aparezca tensión alta.
+
+3. **Distinción entre Excitación de Compuerta N5 ($V_{GS}$) y Conducción N6 ($V_{DS}$):**
+   - Una tensión de compuerta de $4.85\text{--}4.90\,\text{V}$ en N5 ($V_{GS}$) certifica que el pre-driver bipolar funciona y entrega la sobretensión de compuerta requerida (*gate overdrive*) para llevar al MOSFET IRLZ44N a su región óhmica de mínima resistencia.
+   - Sin embargo, **$V_{GS} \ge 4.50\,\text{V}$ no demuestra por sí sola que la corriente circule por la carga**. Para validar la conmutación efectiva del canal, es mandatorio medir la tensión de drenador $V_{DS}$ en el nodo N6:
+     * Si el canal conduce normalmente, $V_{DS} = I_D \times R_{DS(on)}$ debe caer a valores mínimos.
+     * Si N5 está en $4.90\,\text{V}$ pero N6 permanece en $+5.0\,\text{V}$, el MOSFET tiene el canal abierto, la fuente desconectada de GND o la pata de compuerta dañada.
+   - El criterio de aceptación $V_{DS} \le 50\,\text{mV}$ está específicamente acotado a la corriente nominal de la microbomba JT-DC3W sumergida en agua ($I_D \approx 300\text{--}350\,\text{mA}$, disipación $\approx 4.3\,\text{mW}$); con la carga de prueba preliminar LED ($I_D \approx 9\,\text{mA}$), la caída es inferior a $1\,\text{mV}$. No debe extrapolarse como un valor absoluto para cargas superiores sin recalcular $I_D \times R_{DS(on)}$.
+
+4. **Dependencia del Estado de Reposo en N6 (`DRAIN_Q3`) según la Carga Instalada:**
+   - La indicación de que N6 mide $+5.0\,\text{V}$ en reposo asume que existe una carga eléctrica conectada entre el riel de $+5.0\,\text{V}$ y el terminal Drain (ya sea la rama de prueba LED + resistencia de $330\,\Omega$, o el bobinado de la bomba). La resistencia interna de dicha carga actúa como pull-up natural.
+   - Si no hay ninguna carga conectada entre +5V y N6 (circuito abierto), el nodo N6 se encuentra en alta impedancia (flotante), y la lectura con un multímetro de alta impedancia de entrada no reflejará $+5.0\,\text{V}$ de manera determinista.
 
 #### Pines y Encapsulados de los Semiconductores (Vista Frontal Cara Plana):
 - **Q1 (2N2222A - NPN TO-92):** Pin 1 = Emisor (a GND), Pin 2 = Base (desde GPIO 18 vía $R_1$), Pin 3 = Colector (a Base de Q2 vía $R_2$).

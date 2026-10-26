@@ -1,7 +1,7 @@
 # 🧠 Contexto del Proyecto y Memoria Activa de Ingeniería (Living Context)
 
-> **Documento Vivo de Estado, Arquitectura, Seguridad y Trazabilidad para Onboarding de IA.**
-> Este documento permite a cualquier agente de IA o ingeniero sénior retomar de inmediato el proyecto **Smart FloraCare** sin depender de historiales de conversación, eliminando ambigüedades entre el software probado, la seguridad de red y el hardware físico en desarrollo.
+> **Documento Vivo de Estado, Arquitectura, Seguridad, Hardware y Trazabilidad para Onboarding de IA.**
+> Este documento permite a cualquier agente de IA o ingeniero sénior retomar de inmediato el proyecto **Smart FloraCare v1.2.1** sin depender de historiales de conversación, eliminando ambigüedades entre el software probado, la seguridad de red y el hardware físico en desarrollo.
 
 ---
 
@@ -9,7 +9,9 @@
 - **Nombre del Proyecto:** Smart FloraCare (Regador Automático Inteligente de Maceta Única).
 - **Misión de Ingeniería:** Proveer un sistema de autorriego por goteo determinista, silencioso, seguro contra inundaciones por cavitación o efecto sifón, con arquitectura desacoplada de estándar internacional, optimizado ergonómicamente para personas mayores (caso de uso de validación: abuela del creador).
 - **Alcance Operativo Estricto:** Automatización de una **única maceta de interior** desde un **depósito de agua dedicado** (1.5 L a 3.0 L).
-- **Origen:** Ingeniería inversa del circuito de Wirecora (YouTube Short `KClvikj9jAk`), sustituyendo transistores Darlington con pérdidas y sensores resistivos galvánicos por control de nivel lógico, sensores capacitivos, interlocks de seguridad y arquitectura en capas.
+- **Actuador Único Oficial:** **Microbomba sumergible DC de 5 V (JT-DC3W)** impulsada por un riel de 5 V DC regulado externo.
+- **Resolución de Alcance (H-14):** **No existe ni está prevista ninguna electroválvula de 12 V en la versión v1.2.1**. El sistema carece de rieles de 12 V y no controla válvulas solenoides.
+- **Origen:** Reingeniería profunda del circuito de Wirecora (YouTube Short `KClvikj9jAk`), sustituyendo transistores Darlington con pérdidas y sensores resistivos galvánicos por control de nivel lógico, sensores capacitivos, interlocks de seguridad, API REST securizada y arquitectura en capas.
 
 ---
 
@@ -58,178 +60,135 @@ El firmware adopta una **Arquitectura en Capas Desacoplada (Layered Architecture
 
 ---
 
-## 🔌 3. Variantes de Hardware y Reglas de Convivencia Dual
-El proyecto soporta dos variantes de microcontrolador desarrolladas en paralelo:
+## 🔌 3. Variantes de Hardware y Circuito del Driver (H-09 y H-10)
 
-1. **Variante A: Arduino Nano V3 (5.0V Nativo)**
-   - Microcontrolador: ATmega328P.
-   - Sensor de suelo capacitivo v1.2 alimentado a **5.0V** (salida $0.0\,\text{V}-5.0\,\text{V}$ conectada a `A0`).
-   - Driver de bomba: MOSFET **IRLZ44N** accionado directamente desde pin `D3` con $R_{\text{gate}} = 1\,\text{k}\Omega$ y $R_{pd} = 10\,\text{k}\Omega$.
-   - Perfil agronómico precargado: Estándar (Arranque $\le 20\%$, Parada $\ge 70\%$).
-   - Modo de operación: Autónomo estricto (pantalla OLED + buzzer pasivo + botón manual).
-2. **Variante B: ESP32 DevKit V1 (3.3V Nativo)**
-   - Microcontrolador: ESP-WROOM-32 (30 pines).
-   - Sensor de suelo capacitivo v1.2 alimentado obligatoriamente a **3.3V** (salida $\le 3.0\,\text{V}$ conectada a `GPIO 34` / ADC1_CH6 para evitar sobretensión destructiva en el pin).
-   - Driver de bomba: **Driver No Inversor Bipolar de 2 Etapas (Q1 NPN 2N2222A + Q2 PNP 2N3906)** excitando la compuerta del IRLZ44N a $+4.85\,\text{V}$ teóricos desde `GPIO 18`.
-   - Perfil agronómico precargado: Tropical (Arranque $\le 25\%$, Parada $\ge 70\%$).
-   - Modo de operación: Autónomo IoT (Web Dashboard local + API REST protegida por Bearer token / Formulario).
-3. **Reglas Críticas de Convivencia Dual en Banco:**
-   - **Aislamiento Eléctrico Absoluto:** Ambas placas jamás se interconectan eléctricamente ni comparten buses de señal. La protoboard ensaya una sola variante a la vez.
-   - **Masa Común:** Riel de tierra (`GND`) sólidamente unificado entre la fuente externa de 5V (2A–3A), el microcontrolador activo y los terminales de potencia de los drivers.
+### 3.1 Arduino Nano V3 (5.0V Nativo)
+- **Microcontrolador:** ATmega328P (16 MHz, lógica 5.0 V).
+- **Sensor de suelo capacitivo v1.2:** Alimentado a **5.0V** (salida $0.0\,\text{V}-5.0\,\text{V}$ a `A0`).
+- **Driver de bomba:** MOSFET Logic-Level **Vishay IRLZ44N** excitado directamente desde pin `D3` vía $R_{\text{gate}} = 1\,\text{k}\Omega$ y $R_{pd} = 10\,\text{k}\Omega$ a GND.
+- **Diodo Flyback:** **1N5819 Schottky** ($40\,\text{V}, 1\,\text{A}$) en antiparalelo directo en bornes de la bomba.
+- **Buzzer y Botón:** Buzzer pasivo en `D5` (vía $220\,\Omega$); pulsador en `D2` (`INPUT_PULLUP`); boya en `D4` (`INPUT_PULLUP`).
 
----
-
-## 🛡️ 4. Seguridad de Firmware y Arquitectura de Autenticación IoT (ESP32)
-
-### Flujo de Autenticación y Control Remoto
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Cliente as Navegador Web / Cliente REST
-    participant Servidor as WebServer (ESP32 :80)
-    participant Auth as Submódulo de Seguridad (regador_esp32)
-    participant Ctrl as IrrigationController
-    participant HAL as Actuador Hardware (GPIO 18)
-
-    Cliente->>Servidor: POST /api/water (token / Authorization)
-    Servidor->>Auth: Validar Método (POST requerido)
-    alt Método != POST
-        Auth-->>Cliente: 405 Method Not Allowed
-    end
-    Servidor->>Auth: Validar Token Configurado en Firmware
-    alt Token ausente, < 16 chars o placeholder
-        Auth-->>Cliente: 403 Forbidden (API remota deshabilitada)
-    end
-    Servidor->>Auth: Validar Cabecera Origin (Mitigación CSRF)
-    alt Origin presente y no coincide con Host/IP local
-        Auth-->>Cliente: 403 Forbidden (Cross-Origin blocked)
-    end
-    Servidor->>Auth: Normalizar Credenciales (Header vs Form)
-    alt Header y Form con valores contradictorios
-        Auth-->>Cliente: 400 Bad Request (Conflicting credentials)
-    else Longitud > 128 bytes
-        Auth-->>Cliente: 400 Bad Request (Token too long)
-    end
-    Servidor->>Auth: safeConstantTimeEquals(token, API_AUTH_TOKEN)
-    alt Token incorrecto
-        Auth->>Auth: lastFailedAuthMs = nowMs (Rate Limiting no bloqueante)
-        Auth-->>Cliente: 401 Unauthorized
-    else Token válido
-        Auth->>Ctrl: requestWatering(REMOTE_WEB, nowMs, waterOk, sensorOk, moist)
-        alt Condiciones de seguridad NO cumplidas (vaciado, cooldown, FAULT)
-            Ctrl-->>Auth: false
-            Auth-->>Cliente: 409 Conflict (Rechazo por controlador)
-        else Condiciones de seguridad APROBADAS
-            Ctrl-->>Auth: true (State: WATERING, Timer: 3000ms)
-            Ctrl->>HAL: update() -> digitalWrite(PIN_BOMBA, HIGH)
-            Auth-->>Cliente: 303 See Other (Redirección a /)
-        end
-    end
-```
-
-### Medidas de Endurecimiento Implementadas
-1. **Comparación en Tiempo Constante (`safeConstantTimeEquals`):** Evaluación bit a bit en bucle volátil para eliminar oráculos de tiempo en la validación del token.
-2. **Defensa contra CSRF en Navegadores:** Inspección canónica estricta de las cabeceras `Origin` y `Referer` contrastadas de forma exclusiva contra `WiFi.localIP()` (rechazando esquemas cruzados, puertos truncados o dispares, corchetes IPv6 y userinfo incrustado). Clientes sin navegador (cURL/scripts) no envían `Origin` ni `Referer` y son autenticados mediante Bearer token.
-3. **Límite de Longitud contra DoS de Memoria:** `MAX_TOKEN_LEN = 128` bytes; previene saturación de heap en peticiones malformadas.
-4. **Normalización Dual de Credenciales:** Admite `Authorization: Bearer <token>` y `token=<token>` (formulario), pero rechaza valores dispares con `400 Bad Request`.
-5. **Bloqueo de Placeholders de Plantilla:** Inhabilita la API (`403 Forbidden`) si el token configurado es un marcador por defecto (`GENERA_UN_TOKEN...`, `CAMBIA_ESTE...`).
-6. **Limitación de Tasa No Bloqueante (Rate Limiting):** Marca temporal `lastFailedAuthMs` que responde con `429 Too Many Requests` en $< 0.1\,\text{ms}$ ante reintentos sucesivos dentro de 1000 ms, sin bloquear la CPU ni degradar la frecuencia del bucle `loop()` ni el debouncing del flotador.
-7. **Restricción de Transporte HTTP:** Operación estrictamente acotada a red local privada (VLAN IoT); prohibición categórica de port-forwarding hacia Internet.
+### 3.2 ESP32 DevKit V1 (3.3V Nativo)
+- **Microcontrolador:** ESP-WROOM-32 (30 pines, lógica 3.3 V).
+- **Sensor de suelo capacitivo v1.2:** **Obligatoriamente alimentado a 3.3V** (salida analógica $\le 2.9\,\text{V}$ conectada a `GPIO 34` / ADC1_CH6 para proteger el conversor del microcontrolador).
+- **Driver de bomba (Etapa Bipolar No Inversora NPN+PNP de 2 Etapas):**
+  - **Q1 (NPN 2N2222A - Traslador de Nivel):**
+    * Base: Conectada a `GPIO 18` vía $R_1 = 2.2\,\text{k}\Omega$; pull-down $R_{pd1} = 10\,\text{k}\Omega$ a GND.
+    * Emisor: A GND.
+    * Colector: A Base de Q2 vía $R_2 = 2.2\,\text{k}\Omega$.
+  - **Q2 (PNP 2N3906 - Conmutador de Potencia de Compuerta a +5V):**
+    * Emisor: Al riel de potencia de `+5V`.
+    * Base: Conectada al Colector de Q1 vía $R_2 = 2.2\,\text{k}\Omega$; pull-up $R_{pu} = 10\,\text{k}\Omega$ a `+5V`.
+    * Colector: Al Gate del MOSFET Q3.
+  - **Q3 (N-MOSFET Vishay IRLZ44N TO-220):**
+    * Gate: Conectado a Colector de Q2; pull-down de descarga $R_{pd2} = 10\,\text{k}\Omega$ a GND.
+    * Drain: Conectado al polo negativo de la microbomba.
+    * Source: A GND común.
+  - **Comportamiento Seguro:** Durante boot, reset o desconexión del GPIO, $R_{pd1}$ mantiene Q1 en corte $\to$ $R_{pu}$ mantiene Q2 en corte $\to$ $R_{pd2}$ drena la compuerta de Q3 a $0\,\text{V}$ $\implies$ Bomba incondicionalmente **OFF**.
+  - **Excitación en Activo:** Cuando GPIO 18 pasa a 3.3V, Q1 y Q2 saturan profundamente, elevando la compuerta a $V_{GS} \approx 4.85\,\text{V} - 4.90\,\text{V}$, garantizando que el IRLZ44N opere dentro de su especificación de $R_{DS(on)} \le 0.035\,\Omega$.
+  - **Condicionamiento de Diagnóstico Nodal (H-11):**
+    * N2 ($0.70\,\text{V}$) solo confirma polarización de juntura; la saturación se evalúa con N3 ($V_{CE1} \le 0.20\,\text{V}$).
+    * N4 mide $\approx 4.30\,\text{V}$ en conducción normal ($5.0\,\text{V} - V_{EB2}$), o $\approx 0.98\,\text{V}$ bajo divisor Thévenin pasivo si la base no carga el nodo.
+    * N5 ($V_{GS} \ge 4.50\,\text{V}$) demuestra sobrevoltaje de compuerta pero no conducción de carga; la conducción se valida en N6 ($V_{DS} \le 50\,\text{mV}$ bajo carga nominal en agua).
+    * N6 mide $+5.0\,\text{V}$ en reposo únicamente mediante pull-up de la carga conectada (LED o motor).
 
 ---
 
-## 📊 5. Estado Actual de Git, CI y Compilación
-- **Control de Versiones:** Rama `main`, commit publicado `707127c` (`fix(security): harden HTTP auth, origin validation, and rate limiting`).
-- **Integración Continua (GitHub Actions):**
-  - Diagnóstico de ejecución `40285441265` (conclusión `failure` en 0s, 0 jobs): Causa raíz demostrada como error de sintaxis de mapeo YAML en `.github/workflows/ci.yml` (cadena sin entrecomillar que contenía dos puntos seguidos de espacio `: ` en el nombre del paso).
-  - Remediación verificada: Cadena entrecomillada `"Run Full Automated Test Suite (75 Tests: Domain, Security, and HTTP Auth)"`, validada sintácticamente mediante `yaml.safe_load()`.
-- **Arduino Nano V3 (`env:nanoatmega328`):**
-  - Compilación PlatformIO: `SUCCESS` en 1.86 s (AVR-GCC 7.3.0).
-  - Memoria Flash (Programa): `17,554 bytes` utilizados de `30,720 bytes` (**57.1%**). Margen libre: **42.9%**.
-  - Memoria SRAM (Dinámica): `614 bytes` utilizados de `2,048 bytes` (**30.0%**). Margen libre: **70.0%** (1,434 B libres).
-- **ESP32 DevKit V1 (`env:esp32dev`):**
-  - Compilación PlatformIO: `SUCCESS` en 18.92 s (Xtensa-GCC 14.2.0).
-  - Memoria Flash (Programa): `1,082,115 bytes` utilizados de `1,310,720 bytes` (**82.6%**). Margen libre: **17.4%** (228,605 B libres).
-  - Memoria SRAM (Dinámica): `49,412 bytes` utilizados de `327,680 bytes` (**15.1%**). Margen libre: **84.9%** (278,268 B libres).
-  - Secretos: Cero credenciales hardcodeadas; gestión en `Credentials.h` ignorado por Git.
+## 🛡️ 4. Seguridad HTTP y Limitaciones de Memoria en ESP32 (SW-02)
+
+### 4.1 Mecanismos de Seguridad Implementados
+1. **Autenticación Bearer y Formulario:** Exige token secreto en cabecera `Authorization: Bearer <TOKEN>` o en cuerpo `token=<TOKEN>`.
+2. **Comparación en Tiempo Constante (`safeConstantTimeEquals`):** Implementa comparación bit a bit con acumulador volátil XOR sobre la longitud de entrada, reduciendo diferencias temporales basadas en el primer carácter discrepante.
+3. **Validación Canónica de Origen (RFC 6454 / RFC 7231):** Función `validateSingleAuthority()` exige esquema estricto `http://`, compara el Host exclusivamente contra la IP local asignada `WiFi.localIP()` y restringe el puerto estrictamente a `80`.
+4. **Control de Tasa No Bloqueante (Rate Limiting):** Marca temporal `lastFailedAuthMs` que rechaza peticiones sucesivas con `429 Too Many Requests` durante 1000 ms tras un intento fallido, sin retardos bloqueantes.
+5. **Guardia Temprana de Carga Útil:** Rechaza peticiones con `clientContentLength() > 256` con código `413 Payload Too Large`.
+
+### 4.2 Limitaciones Arquitecturales y Riesgo Residual
+- **Asignación Previa de Heap en WebServer:** La biblioteca síncrona `WebServer` de Arduino-ESP32 procesa sockets TCP y ejecuta `malloc()` para almacenar cabeceras antes de transferir el control a `handleApiWater()`. Por lo tanto, el código de aplicación no puede prevenir ataques de denegación de servicio a nivel de red (Slowloris o agotamiento de sockets).
+- **Mitigación Mandatoria:** El dispositivo **debe operar exclusivamente en una red local privada (VLAN IoT)**, con prohibición absoluta de reenvío de puertos WAN a Internet.
 
 ---
 
-## 🧪 6. Jerarquía de Pruebas y Validación (Niveles A, B1, B2, B3 y C)
-El proyecto establece una taxonomía formal de verificación en 5 niveles, distinguiendo con total rigor técnico entre comprobaciones estáticas, modelos simulados, compilación binaria y ensayos en hardware real:
+## 📊 5. Estado Actual de Git, CI y Compilación (Commit de Referencia)
+- **Rama:** `main`
+- **Commit Publicado:** `45fff8516f0996d9008c5fbe73a0fcde5ecbccf9` (`fix(ci): quote test step name to fix YAML syntax error in workflow`)
+- **Estado de CI en GitHub Actions:**
+  - **Run ID:** `40367863193`
+  - **Resultado:** **`SUCCESS`** (Completado en 1m 6s el 2026-10-26T17:21:35Z).
+  - **URL:** [https://github.com/Kxvinnnn/smart-floracare/actions/runs/40367863193](https://github.com/Kxvinnnn/smart-floracare/actions/runs/40367863193)
+- **Métricas de Compilación PlatformIO:**
+  - `nanoatmega328`: Flash: 17,554 B (57.1%), RAM: 614 B (30.0%) — **SUCCESS**
+  - `esp32dev`: Flash: 1,082,115 B (82.6%), RAM: 49,412 B (15.1%) — **SUCCESS**
 
-```
-+-----------------------------------------------------------------------------------------+
-|                        TAXONOMÍA FORMAL DE PRUEBAS SMART FLORACARE                      |
-+-----------------------------------------------------------------------------------------+
-| Nivel A: Análisis Estático y Linters de Código Fuente [APROBADO]                        |
-|   - tests/test_firmware_security.py (12 pruebas superadas en 0.002s).                   |
-|   - Cero credenciales hardcodeadas, recolección de cabeceras, macros y límites.         |
-+-----------------------------------------------------------------------------------------+
-| Nivel B1: Simulación de Lógica de Dominio y Máquina de Estados en Python [APROBADO]      |
-|   - tests/test_irrigation_suite.py (30 pruebas superadas en 0.005s).                    |
-|   - Modelo MockHttpServerEndpoint en tests/test_http_auth_security.py (33 pruebas).     |
-|   - Cobertura: FSM, interlocks, WDT 25s, desbordamiento millis, matriz 4xx/5xx HTTP.    |
-+-----------------------------------------------------------------------------------------+
-| Nivel B2: Compilación y Verificación de Binarios ELF [APROBADO PARA COMPILACIÓN]        |
-|   - PlatformIO Core 6.2.0 (AVR-GCC 7.3.0 y Xtensa-GCC 14.2.0): 0 errores, 0 warnings.  |
-|   - Desensamblado de safeConstantTimeEquals() mediante xtensa-esp32-elf-objdump:        |
-|     confirmación empírica de operaciones xor/or branchless y cond-move moveqz.          |
-+-----------------------------------------------------------------------------------------+
-| Nivel B3: Integración HTTP sobre Firmware Real Compilado [PENDIENTE DE EVIDENCIA]       |
-|   - Evaluación del servidor HTTP nativo (WebServer) ante peticiones lentas (Slowloris), |
-|     inundación de conexiones concurrentes y fragmentación de Heap en hardware/emulador. |
-+-----------------------------------------------------------------------------------------+
-| Nivel C: Validación Física Instrumental en Banco de Pruebas [PENDIENTE DE HARDWARE]     |
-|   - Protocolo ACT-01 a ACT-06: osciloscopio en Gate MOSFET, corriente de pico,         |
-|     sensor capacitivo en sustrato real, flotador con agua y válvula anti-sifón.         |
-|   - OPERACIÓN DESATENDIDA ESTRICTAMENTE PROHIBIDA hasta superar este nivel.             |
-+-----------------------------------------------------------------------------------------+
-```
+---
 
-### Resumen de Pruebas Automatizadas de Software (Niveles A y B1):
-```bash
-# Ejecutar la suite completa de 75 pruebas de software:
-python -m unittest discover -v -s tests
-# Resultado: Ran 75 tests in 0.011s -> OK (100% éxito)
+## 🧪 6. Jerarquía y Taxonomía Formal de Pruebas (SW-01)
+
+La suite del repositorio contiene un total de **75 pruebas automatizadas**, clasificadas formalmente en:
+
+```text
++-------------------------------------------------------------------------------------------------+
+|                        TAXONOMÍA DE PRUEBAS DE SMART FLORACARE v1.2.1                           |
++-------------------------------------------------------------------------------------------------+
+| 1. Pruebas de Dominio Lógico (Nivel A): 30 pruebas                                              |
+|    - Archivo: tests/test_irrigation_suite.py                                                    |
+|    - Valida: FSM de IrrigationController, antirrebote, watchdog (25s), cooldown (5s),          |
+|      desbordamiento de millis(), interpolación de calibración y corte por falta de agua.        |
+|    - Naturaleza: Código Python puro que emula las estructuras de dominio C++.                   |
+|    - Limitación: NO demuestra que el hardware físico funcione.                                  |
++-------------------------------------------------------------------------------------------------+
+| 2. Pruebas de Análisis Estático de Firmware (Nivel B1): 12 pruebas                              |
+|    - Archivo: tests/test_firmware_security.py                                                   |
+|    - Valida: Cero credenciales hardcodeadas, recolección de cabeceras HTTP, polaridad           |
+|      INPUT_PULLUP de boya, presencia de códigos 4xx/5xx y ausencia de bucles infinitos.         |
+|    - Naturaleza: Expresiones regulares e inspección de texto sobre archivos C++.                |
+|    - Limitación: NO valida el comportamiento en tiempo de ejecución en silicio.                 |
++-------------------------------------------------------------------------------------------------+
+| 3. Pruebas HTTP Simuladas con Mocks (Nivel B2): 33 pruebas                                      |
+|    - Archivo: tests/test_http_auth_security.py                                                  |
+|    - Valida: Modelo MockHttpServerEndpoint con lógica de handleApiWater(), token Bearer,        |
+|      reglas RFC 6454 / RFC 7231 de Origin/Referer, rate limiting 429, payload 413, y            |
+|      Test 32 (14 subescenarios de ataque donde la bomba permanece apagada).                     |
+|    - Naturaleza: Modelo de prueba en Python que simula peticiones HTTP.                         |
+|    - Limitación: NO invoca el servidor WebServer real ni prueba asignaciones de heap en silicio.|
++-------------------------------------------------------------------------------------------------+
+| 4. Compilaciones Reproducibles en CI: Dual-Target PlatformIO                                    |
+|    - nanoatmega328 y esp32dev compilan con 0 errores.                                           |
+|    - Limitación: La compilación exitosa no es una prueba funcional ni certifica el circuito.    |
++-------------------------------------------------------------------------------------------------+
+| 5. Protocolo de Pruebas Físicas en Banco Instrumentado: ACT-01 a ACT-06                        |
+|    - Archivo: docs/05_GUIA_DE_DESARROLLO_Y_FASE_A_FASE.md                                      |
+|    - Estado actual: LISTA PARA BANCO (Ninguna prueba ha sido ejecutada en silicio todavía).     |
+|    - Requisito obligatorio: Ejecución supervisada en laboratorio antes de operar desatendido.  |
++-------------------------------------------------------------------------------------------------+
 ```
 
 ---
 
-## 📋 7. Matriz de Seguimiento del Sistema (Taxonomía Ontológica de 6 Estados)
+## 🔬 7. Estado del Protocolo Físico ACT-01 a ACT-06 (TEST-01)
 
-Estados permitidos: `DOCUMENTADO`, `CALCULADO`, `VERIFICADO POR SOFTWARE`, `MEDIDO EN HARDWARE`, `PENDIENTE DE VALIDACIÓN`, `NO AUTORIZADO`.
+| Código | Objetivo Técnico | Criterio de Aceptación Cuantitativo | Instrumento | Estado Actual |
+| :---: | :--- | :--- | :--- | :---: |
+| **ACT-01** | Estado seguro del driver en boot/reset | $V_{GS} \le 0.10\,\text{V}$ en reposo, boot y reset; $I_{leak} < 10\,\mu\text{A}$ | DMM + Osciloscopio | `LISTA PARA BANCO` |
+| **ACT-02** | Excitación de compuerta a 3.3V | $V_{GS} \ge 4.50\,\text{V}$ bajo carga simulada ($15\,\Omega$) | DMM calibrado | `LISTA PARA BANCO` |
+| **ACT-03** | Conmutación real y estabilidad térmica | $V_{DS} \le 50\,\text{mV}$, $\Delta T \le 15^\circ\text{C}$ tras 20s en agua | DMM + Termómetro IR | `LISTA PARA BANCO` |
+| **ACT-04** | Supresión de transitorios inductivos | $V_{\text{peak}} \le 6.0\,\text{V}$ en Drain con diodo 1N5819 | Osciloscopio $\ge 20\,\text{MHz}$ | `LISTA PARA BANCO` |
+| **ACT-05** | Enclavamiento fail-safe de boya | Corte en $\le 50\,\text{ms}$, entrada en $0\,\text{V}$ ante desconexión | DMM + Depósito | `LISTA PARA BANCO` |
+| **ACT-06** | Watchdog (25s) y Servidor HTTP Real | Watchdog en $25\pm 0.5\,\text{s}$; códigos 4xx/303 en silicio; $\Delta Heap \le 200\,\text{B}$ | Cronómetro + cURL LAN | `LISTA PARA BANCO` |
 
-| Componente / Subsistema | Estado Ontológico | Evidencia Verificable | Limitación / Prerrequisito Pendiente |
-| :--- | :---: | :--- | :--- |
-| **Arquitectura de Software en Capas** | `VERIFICADO POR SOFTWARE` | Compilación PlatformIO en Nano y ESP32; separación estricta en headers. | Ninguna en software. |
-| **Controlador Centralizado de Riego** | `VERIFICADO POR SOFTWARE` | `tests/test_irrigation_suite.py` (30 pruebas superadas). | Ninguna en software. |
-| **Interlocks de Seguridad (Boya y Watchdog)** | `VERIFICADO POR SOFTWARE` | Límite inmutable de 20s/25s y enclavamiento de flotador verificados en tests. | Ensayo instrumental ACT-04 en banco físico. |
-| **Autenticación HTTP y Manejo de Tokens** | `VERIFICADO POR SOFTWARE` | `tests/test_http_auth_security.py` (33 pruebas superadas). | Validación sobre hardware ESP32 real en banco. |
-| **Comparación de Token en Tiempo Constante** | `VERIFICADO POR SOFTWARE` | `safeConstantTimeEquals()` implementada y validada en test estático y de lógica. | Análisis oscilográfico de jitter de red LAN. |
-| **Defensa contra CSRF (Origin Checking)** | `VERIFICADO POR SOFTWARE` | `isOriginAllowed()` implementada y probada con orígenes legítimos y maliciosos. | Comprobación en navegador web real conectado al ESP32. |
-| **Límite de Longitud de Entrada (128 B)** | `VERIFICADO POR SOFTWARE` | Rechazo con 400 Bad Request validado en `test_http_auth_security.py`. | Ninguna. |
-| **Aislamiento de Transporte HTTP en LAN** | `DOCUMENTADO` | Restricción de despliegue a VLAN IoT documentada en README y FMEA. | Configuración de red externa y proxy inverso TLS. |
-| **Manejo Seguro de Credenciales (Credentials.h)** | `VERIFICADO POR SOFTWARE` | `.gitignore` activo, plantillas limpias y fallback seguro verificado en tests. | Creación local por parte del usuario final. |
-| **Resiliencia ante Caída de Wi-Fi** | `VERIFICADO POR SOFTWARE` | Test 29: el lazo de control local continúa ejecutándose sin cuelgues. | Reconexión periódica en caliente (Fase 4). |
-| **Driver de Potencia MOSFET (Nano 5V)** | `CALCULADO` | $V_{GS}=5.0\,\text{V}$, $R_{DS(on)} \le 0.035\,\Omega$, $V_{DS} \approx 12.3\,\text{mV}$ a $350\,\text{mA}$. | Medición física con multímetro True RMS (ACT-05). |
-| **Driver Bipolar NPN+PNP (ESP32 3.3V)** | `CALCULADO` | Análisis nodal: $V_{GS} \approx 4.85\,\text{V}$, $I_{B1}=2.6\,\text{mA}$, $I_{B2}=1.84\,\text{mA}$. | Medición física de tensión Gate en banco (ACT-05). |
-| **Diodo Flyback 1N5819 (Schottky)** | `CALCULADO` | $V_{RRM}=40\,\text{V}$, $I_F=1.0\,\text{A}$, supresión instantánea $t_{rr} \approx 0$. | Inspección con osciloscopio digital (ACT-05). |
-| **Modelo Térmico TO-220 ($R_{\theta JA}=62^\circ\text{C/W}$)** | `CALCULADO` | $\Delta T_{estacionario} \approx 0.27^\circ\text{C}$ a $350\,\text{mA}$; pulso de 20s no alcanza equilibrio. | Medición con termómetro IR o termocupla (ACT-05). |
-| **Corriente de Bloqueo del Motor (Stall 1.2A)** | `CALCULADO` | $P_{cond} \approx 50.4\,\text{mW}$; prohibición de trabar manualmente el rotor. | No inducir bloqueo intencional en banco. |
-| **Sensor Capacitivo v1.2 (Plausibilidad)** | `VERIFICADO POR SOFTWARE` | `SensorValidator.h` detecta desconexión y cortocircuito a GND. | Caracterización de suelo y calibración ACT-01/ACT-02. |
-| **Prevención Hidráulica Anti-Sifón** | `DOCUMENTADO` | Reglas de Air Gap $\ge 2\,\text{cm}$ y orificio de venteo de $1.5\,\text{mm}$. | Prueba física de descarga ACT-06. |
-| **Placa Comercial HW-517 (MOSFET Dual)** | `PENDIENTE DE VALIDACIÓN` | BOM lista HW-517 como alternativa sujeta a comprobación de $V_{GS}$. | Verificar lote y saturación a 3.3V antes de energizar. |
-| **Módulos de Relé Electromecánico** | `NO AUTORIZADO` | Descartado en arquitectura y ADR-001 por arco inductivo y ruido EMI. | Prohibido en diseño definitivo. |
-| **MOSFET Estándar FQP30N06L** | `NO AUTORIZADO` | Descartado por requerir $V_{GS}=10\,\text{V}$ para saturación completa. | Prohibido en diseño de 5V y 3.3V. |
-| **Operación Desatendida del Sistema** | `NO AUTORIZADO` | Bloqueada formalmente hasta aprobar ensayos físicos ACT-01 a ACT-06. | Requiere supervisión visual humana constante. |
-| **Reenvío de Puertos WAN (Port Forwarding)** | `NO AUTORIZADO` | Bloqueado por análisis de riesgo FMEA (transporte HTTP sin cifrar). | Prohibido exponer puerto 80 a Internet público. |
+> [!CAUTION]
+> **Prohibición Estricta de Operación Desatendida:**
+> El sistema **no debe energizarse de forma desatendida** bajo ninguna circunstancia hasta que los 6 ensayos ACT-01 a ACT-06 cuenten con registros numéricos firmados en el cuaderno de laboratorio.
 
 ---
 
-## 📌 8. Prerrequisitos para Declarar el Cierre de Hardware
-1. **ACT-01 / ACT-02:** Calibración de sensor capacitivo en aire, agua y muestra real de suelo.
-2. **ACT-04:** Verificación instrumental de tensión de compuerta ($V_{GS} = 0.0\,\text{V}$) durante arranque y reset.
-3. **ACT-05:** Ensayo térmico de 20s con motor sumergido: comprobación de $V_{DS} \le 50\,\text{mV}$, $T_{case} \le 45^\circ\text{C}$ y $\Delta T \le 15^\circ\text{C}$, y ausencia de transitorios inductivos con osciloscopio.
-4. **ACT-06:** Comprobación práctica de rotura de sifón con reservorio elevado.
-5. **Supervisión Asistida:** Registro de 72 horas de operación continua bajo supervisión técnica antes de conectar a vegetación viva.
+## 📋 8. Guía de Onboarding para la Siguiente IA
+Si eres un agente de IA que retoma este proyecto:
+1. **Comprueba el estado de Git:** Asegúrate de estar en `main` y verifica `git status`.
+2. **No confundas pruebas de software con validación física:** Las 75 pruebas automatizadas demuestran robustez lógica y sintáctica, pero **las pruebas físicas ACT-01 a ACT-06 siguen pendientes de ejecución instrumental**.
+3. **Ten en cuenta las restricciones de diseño:**
+   - La bomba es de 5 V (JT-DC3W). No hay electroválvulas de 12 V.
+   - El sensor capacitivo en ESP32 DEBE ir a 3.3V (pin 34).
+   - El driver ESP32 utiliza la etapa de 2 transistores NPN+PNP para excitar el IRLZ44N a 4.85V.
+4. **Siguiente paso de ingeniería:** Asistir al usuario en la ejecución paso a paso de la prueba **ACT-01** en el banco de prototipado sin carga.

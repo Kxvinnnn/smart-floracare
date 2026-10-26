@@ -1,12 +1,13 @@
 # 🛠️ 05. Guía de Desarrollo, Montaje y Comisionamiento Fase a Fase
+## Protocolo Oficial de Validación Instrumental en Banco (ACT-01 a ACT-06)
 
-Esta guía describe el procedimiento riguroso para construir, probar en frío, verificar eléctricamente, comisionar y desplegar el sistema de autorriego **Smart FloraCare** en sus dos variantes de hardware (**Arduino Nano V3** y **ESP32 DevKit V1**).
+Esta guía describe el procedimiento riguroso para construir, probar en frío, verificar eléctricamente, comisionar y desplegar el sistema de autorriego **Smart FloraCare v1.2.1** en sus dos variantes de hardware (**Arduino Nano V3** y **ESP32 DevKit V1**).
 
 ---
 
 ## 📋 Resumen del Procedimiento de Puesta en Marcha
 
-El protocolo de comisionamiento sigue 6 fases secuenciales e independientes. **No se debe avanzar a la siguiente fase sin haber completado y registrado como APROBADA la anterior.**
+El protocolo de comisionamiento sigue 6 fases secuenciales e independientes. **No se debe avanzar a la siguiente fase sin haber completado y registrado como APROBADA la anterior:**
 
 ```text
 +-------------------+      +--------------------+      +--------------------+
@@ -14,8 +15,8 @@ El protocolo de comisionamiento sigue 6 fases secuenciales e independientes. **N
 |  Pre-montaje y    |      |  EN FRÍO (Cold)    |      |  PROGRESIVO        |
 |  acondicionamiento|      |  Continuidad/Aisla |      |  Rieles y MCU      |
 +-------------------+      +--------------------+      +--------------------+
-                                                                  │
-                                                                  ▼
+                                                              │
+                                                              ▼
 +-------------------+      +--------------------+      +--------------------+
 |  FASE 6: DESPLIEGUE| <--- |  FASE 5: PRUEBAS   | <--- |  FASE 4: HIDRÁULICA|
 |  EN MACETA        |      |  DE ESTRÉS Y FALLO |      |  Y ANTI-SIFÓN      |
@@ -37,9 +38,9 @@ Los sensores capacitivos v1.2 poseen componentes electrónicos expuestos en el t
 
 ---
 
-## 📌 Fase 2: Montaje en Protoboard y Chequeos en Frío (Cold Checks)
+## 📌 Fase 2: Montaje y Chequeos en Frío (Cold Checks)
 
-Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes ensayos con un Multímetro Digital (DMM) en modo continuidad (bip) y resistencia ($\Omega$).
+Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes ensayos con un Multímetro Digital (DMM) en modo continuidad (bip) y resistencia ($\Omega$):
 
 ### 2.1 Conexiones de Circuito por Variante
 
@@ -54,121 +55,203 @@ Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes
 - Diodo Flyback (1N5819 Schottky): Cátodo (franja plateada) al polo positivo `+5V`, ánodo al polo negativo de la bomba (Drain).
 - Flotador de Nivel: Pin digital `D4` a un terminal del interruptor; el otro terminal a `GND` (usa `INPUT_PULLUP`).
 - Pulsador Manual: Pin digital `D2` configurado a `GND` con `INPUT_PULLUP` interno.
-- Buzzer Pasivo: Pin digital `D5` con resistencia de 100–220 Ω en serie hacia un polo del buzzer; otro polo a `GND`.
+- Buzzer Pasivo: Pin digital `D5` con resistencia de 220 Ω en serie hacia un polo del buzzer; otro polo a `GND`.
 
 #### Variante B: ESP32 DevKit V1 (3.3V lógica)
 - **Alimentación y Masa Común:** Fuente externa regulada de `5V` (2A–3A) conectada al pin `VIN`/`5V` del ESP32 y al polo positivo (`+`) del motor. Masa común (`GND`) sólidamente unificada entre fuente, ESP32 y terminales de tierra de los drivers.
 - **Sensor Capacitivo v1.2:** **`VCC` conectado obligatoriamente al riel de `3.3V` del ESP32** (nunca a 5V para evitar sobretensión en el conversor analógico). Salida analógica conectada a `GPIO 34` (ADC1_CH6). `GND` al riel común.
 - **Display OLED SSD1306:** `VCC` a `3.3V`, `GND` a tierra, `SDA` a `GPIO 21`, `SCL` a `GPIO 22`.
-- **Driver de Bomba Previsto: Etapa Bipolar No Inversora NPN+PNP (2 Etapas) (Decisión de diseño sujeta a validación en banco):**
+- **Driver de Bomba: Etapa Bipolar No Inversora NPN+PNP (2 Etapas) (Decisión Oficial de Diseño):**
   - **Q1 (Transistor NPN 2N2222A - Conmutador de Nivel):**
-    - Base: Conectada a `GPIO 18` a través de resistencia limitadora $R_1 = 2.2\,\text{k}\Omega$. Resistencia de seguridad pull-down $R_{pd1} = 10\,\text{k}\Omega$ conectada entre Base y `GND` (fija $0.0\,\text{V}$ durante arranque y reset).
-    - Emisor: Conectado rígidamente a `GND`.
-    - Colector: Conectado a la Base de Q2 a través de resistencia limitadora $R_2 = 2.2\,\text{k}\Omega$.
+    - Base: Conectada a `GPIO 18` vía $R_1 = 2.2\,\text{k}\Omega$. Resistencia pull-down $R_{pd1} = 10\,\text{k}\Omega$ entre Base y `GND`.
+    - Emisor: Conectado a `GND`.
+    - Colector: Conectado a la Base de Q2 a través de $R_2 = 2.2\,\text{k}\Omega$.
   - **Q2 (Transistor PNP 2N3906 - Conmutador de Potencia de Compuerta):**
     - Emisor: Conectado directamente al riel de potencia de `+5V`.
-    - Base: Resistencia de pull-up $R_{pu} = 10\,\text{k}\Omega$ entre Base y riel `+5V` (asegura corte estricto cuando Q1 está apagado). Conectada al Colector de Q1 mediante $R_2 = 2.2\,\text{k}\Omega$.
+    - Base: Resistencia de pull-up $R_{pu} = 10\,\text{k}\Omega$ entre Base y riel `+5V`. Conectada al Colector de Q1 mediante $R_2 = 2.2\,\text{k}\Omega$.
     - Colector: Conectado a la Compuerta (Gate) del MOSFET IRLZ44N.
   - **Q3 (MOSFET de Potencia N-Channel IRLZ44N):**
-    - Gate (Pin 1): Conectada al Colector de Q2. Resistencia pull-down de compuerta $R_{pd2} = 10\,\text{k}\Omega$ entre Gate y `GND` (drena cargas parásitas de compuerta cuando Q2 corta).
+    - Gate (Pin 1): Conectada al Colector de Q2. Resistencia pull-down $R_{pd2} = 10\,\text{k}\Omega$ entre Gate y `GND`.
     - Drain (Pin 2): Conectado al polo negativo (`-`) de la microbomba JT-DC3W.
     - Source (Pin 3): Conectado sólidamente a `GND` común.
-  - *Aclaración de Validación:* Las tensiones calculadas ($V_{GS} \approx 4.9\,\text{V}$ en ON, $\le 0.1\,\text{V}$ en reset/corte) son predicciones teóricas de diseño; su comprobación física entre pines Gate y Source constituye un criterio propuesto de aceptación que debe validarse en banco antes de conectar la carga.
-  - *Advertencia de Componentes:* Verificar el orden de patas (Pinout) en la hoja de datos del fabricante del lote específico adquirido (ej. encapsulado plástico TO-92 vs metálico TO-18).
-- **Alternativa Comercial Pendiente de Evaluación para ESP32: Módulo MOSFET HW-517:**
-  - Si se considera el módulo comercial HW-517 (Dual AOD4184A), este se mantiene como **alternativa pendiente de evaluación** y no como sustituto validado por defecto.
-  - Antes de su eventual aceptación en banco, se debe:
-    1. Inspeccionar el circuito esquemático real del módulo adquirido y el modelo de transistores/optoacopladores montados.
-    2. Verificar que la tensión de excitación de 3.3V del ESP32 sea suficiente para saturarlo de forma garantizada según hoja de datos del fabricante.
-    3. Comprobar que mantenga la bomba estrictamente apagada durante el arranque, reset o estado flotante (High-Z) del microcontrolador.
-    4. Realizar un ensayo en vacío y bajo carga con bomba real para confirmar que la caída $V_{DS} \le 50\,\text{mV}$ y la temperatura de operación no presenten deriva térmica.
-  - *Módulos de relé:* Descartados formalmente para esta etapa.
-- **Diodo Flyback (1N5819 Schottky - Selección Provisional de Diseño):** Conectado en antiparalelo directo a bornes del motor (cátodo con franja a +5V, ánodo a Drain). Su idoneidad definitiva queda sujeta a comprobación en banco frente al comportamiento real de la microbomba.
-- **Flotador de Nivel:** `GPIO 19` a interruptor con pull-up interno (`INPUT_PULLUP`); el otro terminal a `GND`.
-- **Pulsador Manual:** `GPIO 4` a pulsador táctil conectado a `GND` con debouncing por software.
-- **Buzzer Pasivo:** `GPIO 23` con resistencia limitadora de 220 Ω en serie; otro polo a `GND`.
-
-### 2.2 Protocolo de Ensayos en Frío (Sin Conectar Fuente)
-
-#### Protocolo de Desconexión Previa Obligatoria:
-Para evitar mediciones erróneas causadas por caminos parásitos o componentes activos:
-1. **Desconectar la fuente de alimentación externa de 5V** y desenchufar el cable USB de la computadora.
-2. **Retirar el microcontrolador** (Nano o ESP32) de su zócalo o protoboard.
-3. **Desconectar el motor de la bomba** (dejar sus cables desconectados temporalmente; la bobina del motor tiene una resistencia interna de $10\,\Omega - 30\,\Omega$ que falsearía la medición del diodo flyback).
-4. **Desconectar el sensor de humedad y la pantalla OLED**.
-
-Ejecute las siguientes mediciones con un multímetro digital (DMM) calibrado sobre la placa base/protoboard:
-
-| Código / Punto de Prueba | Medición con DMM | Procedimiento y Dinámica de Medición | Criterio de Aceptación / Rechazo |
-| :--- | :--- | :--- | :--- |
-| **ACT-01: Aislamiento Riel Potencia** | Resistencia entre riel 5V y GND (placa aislada sin MCU ni módulos) | La corriente del DMM cargará los condensadores de desacople ($100\,\mu\text{F}$ / $100\,\text{nF}$). La lectura iniciará en valores bajos y ascenderá de forma continua durante 2 a 5 segundos hasta estabilizarse en $> 5\,\text{k}\Omega$ (o circuito abierto `OL`). | **Aceptado:** Ascenso dinámico hacia $> 5\,\text{k}\Omega$.<br/>**Rechazo Inmediato:** $R < 10\,\Omega$ estático o continuidad acústica permanente (cortocircuito franco de pista o puente de estaño). |
-| **ACT-01b: Gate a GND del Driver** | Resistencia entre pin Gate/Input y Source/GND | Medir resistencia directa con escala de $20\,\text{k}\Omega$. | $10\,\text{k}\Omega \pm 5\%$ (resistencia pull-down de seguridad). Rechazar si $< 100\,\Omega$ o circuito abierto ($> 1\,\text{M}\Omega$). |
-| **ACT-02: Polaridad Directa Flyback** | Modo diodo: Sonda roja en Ánodo (Drain), negra en Cátodo (+5V) | **Bomba desconectada**. Mide directamente la unión semiconductora del 1N5819 Schottky. | **$0.25\,\text{V} - 0.40\,\text{V}$**. Rechazar si indica $0.00\,\text{V}$ (diodo perforado en corto) o `OL` (diodo abierto o falso contacto). |
-| **ACT-02b: Polaridad Inversa Flyback**| Modo diodo: Sonda roja en Cátodo (+5V), negra en Ánodo (Drain) | **Bomba desconectada**. Verifica polarización inversa del diodo. | `OL` o $> 2.0\,\text{V}$ (bloqueo inverso total). Rechazar si conduce o muestra caída baja (diodo soldado al revés). |
-| **Continuidad de GND** | Continuidad entre GND de bornera de alimentación, GND del MCU y Source del MOSFET | Escala de continuidad / resistencia baja. | $0.0\,\Omega - 0.5\,\Omega$ con bip audible claro. Rechazar si $> 1.0\,\Omega$ (tierra flotante). |
-
-> [!CAUTION] ¡Peligro Crítico: Verificación de Diodo Flyback!
-> Si el diodo 1N5819 se conecta invertido (cátodo a Drain y ánodo a +5V), al activarse el MOSFET se creará un cortocircuito directo entre el riel de 5V y GND a través del diodo, destruyendo instantáneamente el transistor de conmutación. Confirme visualmente la banda plateada (cátodo) hacia el polo positivo (+5V) antes de avanzar.
-
-**Criterio de Aceptación Fase 2 (ACT-01 / ACT-02):** Todos los valores registrados dentro de tolerancia. Cero cortocircuitos francos y polaridad del diodo 1N5819 100% verificada con la bomba desconectada.
+  - **Alternativa Comercial HW-517:** Clasificada como `PENDIENTE DE EVALUACIÓN / NO RECOMENDADO`. Sujeto a verificación previa de esquemático y caída $V_{DS} \le 50\,\text{mV}$.
 
 ---
 
-## 📌 Fase 3: Energizado Progresivo y Prueba de Subsistemas
+## 🔬 Protocolo Oficial de Pruebas Físicas de Banco (ACT-01 a ACT-06)
 
-El encendido del circuito debe realizarse de forma escalonada, **sin conectar la bomba todavía** (usa un LED de prueba con resistencia de 330 Ω entre +5V y Drain para verificar visualmente la conmutación).
+> [!WARNING]
+> Las siguientes pruebas corresponden al protocolo de validación instrumental sobre hardware real.
+> **Ninguna de estas pruebas ha sido ejecutada en silicio todavía**; todos los procedimientos se encuentran en estado de preparación técnica controlada. Está estrictamente prohibido marcar una prueba como aprobada sin contar con mediciones numéricas firmadas en banco.
 
-### Paso 3.1: Prueba del Microcontrolador y Rieles de Tensión
-1. Conecta el cable USB a la placa.
-2. Mide con el DMM en escala de Voltaje DC:
-   - En Arduino Nano: Mide entre pin `5V` y `GND`. Debe arrojar entre $4.75\,\text{V}$ y $5.10\,\text{V}$.
-   - En ESP32: Mide entre pin `3V3` y `GND`. Debe arrojar entre $3.25\,\text{V}$ y $3.35\,\text{V}$.
-3. Comprueba que el regulador de tensión en la placa permanezca a temperatura ambiente (frío al tacto).
+---
 
-### Paso 3.2: Carga del Firmware y Comunicación I2C
-1. Compila y flashea el firmware correspondiente mediante PlatformIO:
-   - Para Nano: `uvx platformio run -e nanoatmega328 -t upload`
-   - Para ESP32: `uvx platformio run -e esp32dev -t upload`
-2. La pantalla OLED debe inicializarse en menos de 1 segundo mostrando el logotipo y las lecturas de telemetría.
-3. Abre el Monitor Serie a 115200 baudios. Verifica que se impriman los mensajes de inicialización y el estado de la FSM en `IDLE`.
+### ACT-01: Estado Seguro del Driver (Fail-Safe en Reposo, Boot y Reset)
+1. **Identificador:** `ACT-01`
+2. **Objetivo:** Verificar cuantitativamente que la etapa de potencia y la compuerta del MOSFET permanecen en corte estricto ($V_{GS} < 0.10\,\text{V}$) durante el arranque inicial, el reinicio físico, la desconexión del cable de señal y el estado de alta impedancia (High-Z) del microcontrolador.
+3. **Riesgo cubierto:** F-07 (Inversión lógica, compuerta flotante o activación espuria de bomba durante transitorios de encendido).
+4. **Equipo e instrumentos:** Multímetro Digital (DMM) calibrado (resolución $\le 1\,\text{mV}$) y osciloscopio digital (acoplamiento DC, base de tiempo 200 ms/div, trigger en flanco de subida de riel 5V).
+5. **Montaje:** Driver NPN+PNP montado en protoboard con Q1 (2N2222A), Q2 (2N3906), Q3 (IRLZ44N) y resistencias ($R_1 = 2.2\,\text{k}\Omega$, $R_{pd1} = 10\,\text{k}\Omega$, $R_2 = 2.2\,\text{k}\Omega$, $R_{pu} = 10\,\text{k}\Omega$, $R_{pd2} = 10\,\text{k}\Omega$). Carga simulada con LED indicador + resistencia de 330 Ω entre +5V y Drain. Bomba mecánica desconectada.
+6. **Precondiciones:** Fuente externa de 5.0 V regulada y estabilizada. Microcontrolador programado con firmware v1.2.1.
+7. **Procedimiento:**
+   - Medir $V_{GS}$ con multímetro entre Pin 1 (Gate) y Pin 3 (Source) del IRLZ44N en 4 escenarios:
+     a) Fuente de 5V encendida, ESP32 apagado / desconectado.
+     b) ESP32 energizado, durante los primeros 500 ms de bootloader.
+     c) Pulsando y manteniendo presionado el botón físico EN/RESET del ESP32.
+     d) Cable de señal desconectado de GPIO 18 (entrada flotante al driver).
+8. **Mediciones a registrar:** $V_{B(Q1)}$, $V_{B(Q2)}$, $V_{Gate(Q3)}$, corriente de fuga $I_{leak}$ en Drain.
+9. **Criterios de aceptación cuantificables:**
+   - $V_{GS} \le 0.10\,\text{V}$ ($100\,\text{mV}$) en los cuatro escenarios evaluados.
+   - LED indicador de carga completamente apagado ($I_{leak} < 10\,\mu\text{A}$).
+   - Osciloscopio confirma ausencia de pulsos espurios superiores a $0.50\,\text{V}$ durante la rampa de encendido de la fuente.
+10. **Resultado esperado:** $V_{GS} = 0.00\,\text{V}$, corte absoluto garantizado por $R_{pd1}$, $R_{pu}$ y $R_{pd2}$.
+11. **Resultado real:** PENDIENTE DE MEDICIÓN EN BANCO.
+12. **Evidencia:** Captura oscilográfica del transitorio de boot y fotografía de pantalla del DMM (Pendiente).
+13. **Estado:** `LISTA PARA BANCO`.
+14. **Observaciones y acciones correctivas:** Si se detecta $V_{GS} > 0.20\,\text{V}$ en reset, verificar que $R_{pd1}$ y $R_{pu}$ no presenten soldadura fría o valores alterados.
 
-### Paso 3.3: Verificación de Entradas Analógicas y Digitales (ACT-03 y ACT-04)
+---
 
-#### A. Calibración y Sensibilidad del Sensor Capacitivo (ACT-03):
-1. **Ensayo de Rango Extremo (Aire vs Agua):**
-   - Registrar una ráfaga de 10 lecturas consecutivas con el sensor suspendido en aire seco ($ADC_{\text{aire}}$). Calcular media ($\mu$) y desviación estándar ($\sigma$).
-   - Sumergir la sonda verticalmente hasta la línea blanca serigrafiada en un vaso con agua limpia ($ADC_{\text{agua}}$) y registrar 10 lecturas.
-   - **Criterios de Sensibilidad Cuantitativa:**
-     - En Arduino Nano (10 bits, 5.0V): $|ADC_{\text{aire}} - ADC_{\text{agua}}| \ge 150\,\text{cuentas}$ con $\sigma \le 5\,\text{cuentas}$.
-     - En ESP32 (12 bits muestreado a 3.3V): $|ADC_{\text{aire}} - ADC_{\text{agua}}| \ge 200\,\text{cuentas}$ con $\sigma \le 15\,\text{cuentas}$.
-2. **Calibración con Sustrato Real de la Planta (Maceta):**
-   - Insertar el sensor en la maceta con tierra completamente seca (antes del primer riego). Anotar el valor $ADC_{\text{seco}}$.
-   - Regar la maceta a capacidad de campo hasta que comience a drenar por la base. Dejar reposar 15 minutos para que el agua gravitacional escurra y registrar $ADC_{\text{campo}}$.
-   - **Mapeo en `CalibrationProfile` de `SensorValidator.h`:**
-     La función `SensorValidator::calculateMoisturePercent` realiza la conversión determinista:
-     $$\text{Humedad (\%)} = \frac{\text{airRaw} - \text{rawADC}}{\text{airRaw} - \text{waterRaw}} \times 100$$
-     Para calibrar el sistema al sustrato real, configure en el perfil de calibración del firmware:
-     - `prof.airRaw = ADC_seco` (corresponde al $0\%$ de humedad útil).
-     - `prof.waterRaw = ADC_campo` (corresponde al $100\%$ de capacidad de campo).
-     - `prof.minDelta = (ADC_seco - ADC_campo) / 2`.
-   - Con esta asignación, los umbrales de la FSM en `ControllerConfig`:
-     - `autoStartMoisturePct: 20` (inicia el riego cuando el agua disponible cae al $\le 20\%$).
-     - `autoStopMoisturePct: 70` (corta el riego al recuperar el $70\%$ de capacidad de campo).
-   - Verificar que la electrónica SMD superior y el conector del sensor permanezcan secos y barnizados, sin humedad capilar.
+### ACT-02: Compatibilidad de Niveles Lógicos y Excitación de Compuerta
+1. **Identificador:** `ACT-02`
+2. **Objetivo:** Comprobar que el circuito de adaptación de 2 etapas NPN+PNP entrega una tensión de compuerta plena ($V_{GS} \ge 4.50\,\text{V}$) al ser activado desde el GPIO de 3.3 V del ESP32, asegurando saturación profunda del MOSFET IRLZ44N dentro de especificación de catálogo ($R_{DS(on)} \le 0.035\,\Omega$).
+3. **Riesgo cubierto:** Conducción parcial del MOSFET a 3.3V, sobrecalentamiento por resistencia de canal elevada y fallo de par de arranque de la bomba.
+4. **Equipo e instrumentos:** Multímetro Digital (DMM) calibrado (resolución 1 mV).
+5. **Montaje:** Driver NPN+PNP conectado a GPIO 18 del ESP32 y riel +5V de la fuente. Carga simulada con resistor de potencia de $15\,\Omega$ 5W (simulando corriente nominal de ~330 mA).
+6. **Precondiciones:** ACT-01 aprobada. Firmware configurado para emitir comando de riego manual de 3 s.
+7. **Procedimiento:**
+   - Activar el riego manual mediante pulsador.
+   - Medir durante el intervalo de 3 s la tensión en GPIO 18 ($V_{OH}$), la tensión de base de Q1 ($V_{BE1}$), la tensión colector-emisor de Q1 ($V_{CE1}$), la tensión base-emisor de Q2 ($V_{EB2}$) y la tensión efectiva Gate-Source en Q3 ($V_{GS}$).
+8. **Mediciones a registrar:** $V_{GPIO}$, $V_{BE1}$, $V_{CE1}$, $V_{EB2}$, $V_{EC2}$, $V_{GS}$.
+9. **Criterios de aceptación cuantificables:**
+   - $V_{OH(GPIO)} \ge 3.00\,\text{V}$.
+   - $V_{CE1(sat)} \le 0.20\,\text{V}$ (Q1 saturado).
+   - $V_{EC2(sat)} \le 0.20\,\text{V}$ (Q2 saturado).
+   - **$V_{GS} \ge 4.50\,\text{V}$** (Criterio crítico de aceptación; nominal calculado: $4.85\,\text{V} - 4.90\,\text{V}$).
+10. **Resultado esperado:** $V_{GS} \approx 4.85\,\text{V}$, excitación plena del canal N del IRLZ44N.
+11. **Resultado real:** PENDIENTE DE MEDICIÓN EN BANCO.
+12. **Evidencia:** Registro numérico de tabla nodal firmado (Pendiente).
+13. **Estado:** `LISTA PARA BANCO`.
+14. **Observaciones y acciones correctivas:** Si $V_{GS} < 4.50\,\text{V}$, verificar la caída de tensión en el riel de 5V de la fuente bajo carga. Si la fuente cae por debajo de $4.8\,\text{V}$, sustituir la fuente por una unidad de 5V 3A de mayor regulación.
 
-#### B. Interbloqueo Fail-Safe del Flotador de Nivel (ACT-04):
-1. **Verificación en Arduino Nano (Pin D4 con `INPUT_PULLUP`):**
-   - Boya arriba (depósito con agua): Contacto cerrado a GND $\to$ `digitalRead(4) == LOW` $\to$ `waterLevelOk = true`. OLED muestra `WATER OK`.
-   - Boya abajo o cable cortado/desconectado: Entrada en estado flotante traccionada a 5V por pull-up interno $\to$ `digitalRead(4) == HIGH` $\to$ `waterLevelOk = false`. OLED muestra `LOW WATER`, FSM entra en `FAULT`.
-   - **Prueba de Bloqueo:** Presionar el botón manual o enviar solicitud de riego. Verificar con voltímetro que el pin D3 (Gate) permanece en $0.00\,\text{V}$.
-2. **Verificación en ESP32 (GPIO 19 con `INPUT_PULLUP`):**
-   - Repetir exactamente el mismo ensayo. Desconectar la borna del sensor de nivel simulando desprendimiento físico.
-   - Comprobar en el Monitor Serie el mensaje `[INTERLOCK] Agua baja detectada. Bombeo bloqueado.` y verificar que el GPIO 18 (Trigger) permanece en $0.00\,\text{V}$.
+---
 
-#### C. Pulsador Manual de Riego:
-- Presionar el botón manual una vez: el LED de prueba conectado a Drain debe encenderse exactamente durante 3 segundos y apagarse limpiamente sin trepidaciones.
+### ACT-03: Conmutación con Carga Real de Bomba y Estabilidad Térmica
+1. **Identificador:** `ACT-03`
+2. **Objetivo:** Comprobar la conmutación controlada con la microbomba sumergible JT-DC3W real sumergida en agua, midiendo la caída de tensión en canal ($V_{DS}$), la corriente de régimen ($I_{load}$) y la estabilidad térmica del encapsulado TO-220 tras un ciclo de bombeo máximo continuo ($T = 20\,\text{s}$).
+3. **Riesgo cubierto:** F-05 (Sobrecarga de motor, embalamiento térmico del driver, calentamiento destructivo en gabinete cerrado).
+4. **Equipo e instrumentos:** Multímetro Digital para corriente DC (escala 10 A), Multímetro para milivoltios DC, Termómetro infrarrojo o termocupla Tipo K calibrada, bandeja plástica antiderrames.
+5. **Montaje:** Depósito con agua limpia, microbomba JT-DC3W sumergida impulsando agua en circuito cerrado hacia el depósito. Bomba conectada entre +5V y Drain de Q3.
+6. **Precondiciones:** ACT-01 y ACT-02 aprobadas. Prohibido terminantemente encender la microbomba en seco. Prohibido frenar manualmente el rotor para forzar corriente de bloqueo.
+7. **Procedimiento:**
+   - Registrar la temperatura ambiente del banco ($T_{\text{amb}}$).
+   - Iniciar un ciclo de bombeo de 20 segundos continuos (tiempo máximo permitido por watchdog del firmware).
+   - Registrar la corriente estable del motor ($I_{\text{bomba}}$).
+   - Medir con puntas de prueba directamente sobre las patillas Drain (Pin 2) y Source (Pin 3) la caída $V_{DS}$.
+   - Al finalizar los 20 segundos, medir de inmediato la temperatura superficial del encapsulado TO-220 del IRLZ44N ($T_{\text{case}}$) y del diodo 1N5819.
+8. **Mediciones a registrar:** $T_{\text{amb}}$, $I_{\text{bomba}}$, $V_{DS}$, $T_{\text{case}}$, $\Delta T = T_{\text{case}} - T_{\text{amb}}$.
+9. **Criterios de aceptación cuantificables:**
+   - Corriente de régimen: $I_{\text{bomba}} \le 400\,\text{mA}$ en agua.
+   - Caída de tensión Drain-Source: **$V_{DS} \le 50\,\text{mV}$** ($0.05\,\text{V}$) a régimen nominal.
+   - Elevación térmica: **$\Delta T \le 15^\circ\text{C}$** sobre temperatura ambiente tras 20 s.
+   - Temperatura máxima de encapsulado: $T_{\text{case}} \le 45^\circ\text{C}$.
+10. **Resultado esperado:** $V_{DS} \approx 12\,\text{mV} - 20\,\text{mV}$, potencia disipada $\approx 5\,\text{mW}$, elevación térmica $\Delta T < 2^\circ\text{C}$ (frío al tacto).
+11. **Resultado real:** PENDIENTE DE MEDICIÓN EN BANCO.
+12. **Evidencia:** Registro de prueba térmica y foto termográfica/termocupla (Pendiente).
+13. **Estado:** `LISTA PARA BANCO`.
+14. **Observaciones y acciones correctivas:** Si $V_{DS} > 50\,\text{mV}$, suspender la prueba inmediatamente; indica que el MOSFET no está saturando adecuadamente o la pieza es un clon fuera de especificación.
 
-**Criterio de Aceptación Fase 3:** Telemetría visual en OLED correcta, respuestas cuantitativas según ACT-03 ($|\Delta ADC| \ge 150/200$), calibración de sustrato documentada, interbloqueo fail-safe ACT-04 verificado en ambas plataformas (cero voltios en salida ante fallo) y pulsador conmutando sin bloqueos.
+---
+
+### ACT-04: Supresión de Transitorios Inductivos (Flyback)
+1. **Identificador:** `ACT-04`
+2. **Objetivo:** Capturar mediante osciloscopio el pico de fuerza contraelectromotriz (Back-EMF) generado en el borne negativo de la bomba al conmutar de conducción a corte, verificando que el diodo Schottky 1N5819 suprime el transitorio de forma segura por debajo de 6.0 V.
+3. **Riesgo cubierto:** F-06 (Destrucción por sobretensión del canal del MOSFET, reinicios espurios de CPU por acoplamiento de ruido en el riel de alimentación).
+4. **Equipo e instrumentos:** Osciloscopio Digital con memoria (ancho de banda $\ge 20\,\text{MHz}$), sonda 10X compensada, trigger en flanco de subida en modo disparo único (*Single Shot*).
+5. **Montaje:** Conexión de sonda de osciloscopio: Pinza de tierra al Source (GND común); punta de sonda directamente sobre el pin Drain (Pin 2) del IRLZ44N. Bomba sumergible conectada en agua. Diodo 1N5819 soldado en antiparalelo directo a bornes del motor.
+6. **Precondiciones:** ACT-03 aprobada. Confirmación visual y por multímetro de la polaridad del diodo (cátodo con banda plateada conectado al riel +5V; ánodo a Drain).
+7. **Procedimiento:**
+   - Configurar osciloscopio: Escala vertical 2.0 V/div, escala horizontal 500 ns/div (y ráfaga secundaria a 2 $\mu$s/div), nivel de trigger fijado en +5.5 V.
+   - Ejecutar un pulso de conmutación de 1 segundo de la bomba.
+   - Capturar el oscilograma del momento exacto del corte de corriente.
+   - Medir la amplitud máxima del sobreimpulso ($V_{\text{peak}}$) y el tiempo de supresión ($t_{\text{clamp}}$).
+8. **Mediciones a registrar:** $V_{\text{peak}}$, tiempo de retorno a 5.0 V, presencia de timbreo parásito (*ringing*).
+9. **Criterios de aceptación cuantificables:**
+   - Tensión máxima de pico en Drain: **$V_{\text{peak}} \le 6.0\,\text{V}$** (Criterio de aceptación estricto; el MOSFET soporta $55\,\text{V}$, pero el diodo debe absorber el pico a $V_{\text{fuente}} + V_F \approx 5.0\,\text{V} + 0.45\,\text{V} = 5.45\,\text{V}$).
+   - Ausencia de oscilaciones no amortiguadas que superen 6.0 V.
+10. **Resultado esperado:** Pico recortado limpiamente en $\approx 5.4\,\text{V}$ sin rebotes destructivos.
+11. **Resultado real:** PENDIENTE DE MEDICIÓN EN BANCO.
+12. **Evidencia:** Captura de pantalla del osciloscopio (.PNG / .CSV) con cursores de tensión (Pendiente).
+13. **Estado:** `LISTA PARA BANCO`.
+14. **Observaciones y acciones correctivas:** Si el osciloscopio registra picos $> 12\,\text{V}$, el diodo 1N5819 está dañado, invertido o el cableado del diodo presenta inductancia parásita excesiva (debe ubicarse pegado a los terminales de la bomba).
+
+---
+
+### ACT-05: Sensor de Boya y Enclavamiento de Nivel Seguro (Fail-Safe Interlock)
+1. **Identificador:** `ACT-05`
+2. **Objetivo:** Comprobar física y lógicamente que la entrada del sensor de nivel por boya magnética (CS-CO058) conmuta limpiamente con su resistencia de pull-up interna, entra en enclavamiento de seguridad (`FAULT / NO_WATER_LEVEL`) en $< 50\,\text{ms}$ al detectar nivel bajo y mantiene la bomba incondicionalmente apagada ante desconexión o rotura de cable.
+3. **Riesgo cubierto:** F-01 (Marcha en seco de la bomba, cavitación y quema de sellos), F-12 (Cable de flotador cortado o suelto).
+4. **Equipo e instrumentos:** Multímetro Digital (Voltaje DC), depósito de agua de prueba con boya magnética montada vertical/horizontalmente, Monitor Serie a 115200 baudios.
+5. **Montaje:** Interruptor de flotador conectado entre el pin digital del microcontrolador (`D4` en Nano / `GPIO 19` en ESP32) y `GND`. Salida de bomba monitoreada con voltímetro.
+6. **Precondiciones:** Firmware v1.2.1 cargado en placa. Lazo de control ejecutándose.
+7. **Procedimiento:**
+   - Escenario 1 (Depósito con agua): Boya arriba. Medir tensión en pin de entrada. Solicitar riego manual. La bomba debe encender.
+   - Escenario 2 (Depósito agotado durante riego): Con la bomba activa, descender manualmente la boya. Registrar el tiempo de corte de la bomba y la indicación en display OLED / Monitor Serie.
+   - Escenario 3 (Desconexión de cable / Falla de circuito): Con la bomba en reposo y agua presente, desconectar físicamente uno de los cables del flotador de la bornera. Intentar forzar riego mediante pulsador físico y solicitud web.
+8. **Mediciones a registrar:** Tensión en pin con boya alta ($V_{\text{in, closed}}$), tensión con boya baja ($V_{\text{in, open}}$), tiempo de respuesta de corte ante caída de boya, estado de salida de bomba.
+9. **Criterios de aceptación cuantificables:**
+   - Boya alta (agua OK): Contacto cerrado a GND, $V_{\text{in}} \le 0.30\,\text{V}$ (`digitalRead == LOW`).
+   - Boya baja (sin agua): Contacto abierto, $V_{\text{in}} \ge 3.00\,\text{V}$ en ESP32 / $\ge 4.50\,\text{V}$ en Nano (`digitalRead == HIGH`).
+   - Cable desconectado: Entrada traccionada a nivel alto por `INPUT_PULLUP` $\implies$ estado seguro (`LOW WATER`).
+   - Tiempo de detención de bomba ante caída de nivel: $\le 50\,\text{ms}$ (dentro del ciclo de debouncing).
+   - Tensión en compuerta de MOSFET ante fallo: estrictamente $0.00\,\text{V}$.
+10. **Resultado esperado:** Bloqueo total e inmediato de la bomba, transición a `FAULT`, advertencia acústica y visual activa.
+11. **Resultado real:** PENDIENTE DE MEDICIÓN EN BANCO.
+12. **Evidencia:** Captura de log serie y video de respuesta de corte (Pendiente).
+13. **Estado:** `LISTA PARA BANCO`.
+14. **Observaciones y acciones correctivas:** Si la entrada no sube a $> 3.0\,\text{V}$ al desconectar el cable, verificar la activación por software de `pinMode(pin, INPUT_PULLUP)` en el firmware.
+
+---
+
+### ACT-06: Watchdog de Seguridad, Recuperación de FSM y Validación de Servicio HTTP Real
+1. **Identificador:** `ACT-06`
+2. **Objetivo:** Verificar en silicio real los dos bloques críticos de recuperación y servicio: (A) Disparo y corte incondicional del Watchdog Timer de seguridad a los 25.0 segundos exactos ante fallo de humedad, con respeto estricto del periodo de enfriamiento (cooldown de 5.0 s); y (B) Respuesta del servidor HTTP real compilado en el ESP32 ante llamadas válidas e inválidas, validación de cabeceras, rate limiting y estabilidad de memoria heap libre.
+3. **Riesgo cubierto:** F-05 (Watchdog de software), F-08, F-16, F-17, F-18 (Seguridad HTTP, ataques de temporización, desbordamiento de memoria heap en silicio).
+4. **Equipo e instrumentos:** Cronómetro digital calibrado, estación de trabajo con Python / cURL / Postman conectada a la misma subred Wi-Fi privada del ESP32, Monitor Serie a 115200 baudios.
+5. **Montaje:** ESP32 DevKit V1 conectado a red local de laboratorio privada (VLAN IoT aislada). Sonda capacitiva mantenida en aire seco (<20% de humedad) para forzar demanda de riego continuo.
+6. **Precondiciones:** ACT-01 a ACT-05 aprobadas. Archivo `Credentials.h` configurado con token seguro de más de 16 caracteres no predeterminado.
+7. **Procedimiento:**
+
+   #### Bloque A: Firmware y Watchdog de Seguridad
+   - Con el sensor en aire seco (<20%), permitir que el controlador inicie el riego automático.
+   - Iniciar simultáneamente el cronómetro.
+   - Dejar correr el ciclo sin humedecer el sensor (simulando rotura de tubería o sonda fuera de maceta).
+   - Registrar el instante exacto en que el firmware corta la alimentación de la bomba.
+   - Pulsar de forma insistente el botón manual durante los siguientes 5 segundos para verificar la inhibición por periodo de enfriamiento (*cooldown*).
+
+   #### Bloque B: Servidor HTTP Real en Silicio (ESP32 WebServer)
+   - Realizar 6 llamadas HTTP de prueba dirigidas a la IP real del ESP32 (`http://<IP_ESP32>/api/water`):
+     1. `GET /api/water` $\to$ Debe responder con código `405 Method Not Allowed`.
+     2. `POST /api/water` sin token $\to$ Debe responder `401 Unauthorized`.
+     3. `POST /api/water` con token inválido $\to$ Debe responder `401 Unauthorized` y activar ventana de rate limiting.
+     4. `POST /api/water` repetido en $< 1000\,\text{ms}$ $\to$ Debe responder de inmediato con `429 Too Many Requests`.
+     5. `POST /api/water` con origen cruzado `Origin: http://malicious-site.com` $\to$ Debe responder `403 Forbidden`.
+     6. `POST /api/water` con cuerpo sobredimensionado ($> 256$ bytes) $\to$ Debe responder `413 Payload Too Large`.
+     7. `POST /api/water` con cabecera `Authorization: Bearer <TOKEN_VALIDO>` y origen canónico $\to$ Debe responder `303 See Other`, encender la bomba durante exactamente 3.0 s y apagarse limpiamente.
+   - Monitorear a través del puerto serie el valor de `ESP.getFreeHeap()` antes, durante y después de la ráfaga de pruebas.
+
+8. **Mediciones a registrar:** Tiempo exacto de corte por watchdog ($T_{\text{wdt}}$), tiempo de cooldown ($T_{\text{cool}}$), códigos de estado HTTP observados, tiempos de respuesta de la API, memoria heap inicial ($Heap_{\text{init}}$), memoria heap final ($Heap_{\text{final}}$).
+9. **Criterios de aceptación cuantificables:**
+   - **Bloque A:** $T_{\text{wdt}} = 25.0\,\text{s} \pm 0.5\,\text{s}$; transición obligatoria a `FAULT(MAX_TIMEOUT_EXCEEDED)`. Inhibición de rearme manual durante $5.0\,\text{s} \pm 0.5\,\text{s}$.
+   - **Bloque B:**
+     - 100% de coincidencia en los códigos de estado HTTP (405, 401, 429, 403, 413, 303).
+     - Riego activado exclusivamente en la llamada legítima número 7 (duración: $3.0\,\text{s} \pm 0.2\,\text{s}$). En todas las llamadas rechazadas (1 a 6), la bomba debe permanecer **estrictamente apagada**.
+     - Estabilidad de memoria heap: $\Delta Heap = Heap_{\text{init}} - Heap_{\text{final}} \le 200\,\text{bytes}$ tras el ciclo completo de peticiones (cero fugas de memoria persistentes).
+10. **Resultado esperado:** Watchdog corta a los 25 s; respuestas HTTP exactas sin cuelgues ni fugas de heap.
+11. **Resultado real:** PENDIENTE DE MEDICIÓN EN BANCO.
+12. **Evidencia:** Registros de terminal de cURL con cabeceras completas y captura de log serie con telemetría de heap (Pendiente).
+13. **Estado:** `LISTA PARA BANCO`.
+14. **Observaciones y acciones correctivas:** Si se detecta fuga de heap acumulativa tras ráfagas HTTP, revisar la liberación de instancias `String` en los manejadores de ruta del ESP32.
 
 ---
 
@@ -185,92 +268,19 @@ El encendido del circuito debe realizarse de forma escalonada, **sin conectar la
 3. **Agujero rompe-sifón (Siphon Break Hole):** En caso de que el recorrido del tubo obligatoriamente pase por encima del nivel de agua, practica una perforación microscópica (0.5 mm con una aguja caliente) en el tramo de manguera que queda dentro del depósito, por encima del nivel máximo de agua. Esto introduce aire e interrumpe la columna de vacío cuando la bomba se detiene.
 4. **Filtro de succión:** Coloca un tramo de malla fina de nylon o tul alrededor de la rejilla de entrada de la microbomba sumergible para evitar que suciedad o pelusas bloqueen el impulsor magnético.
 
-#### Distinción Operativa entre Sifón Crítico y Drenaje Residual (ACT-06):
-- **Drenaje Capilar Residual Normal:** Al detenerse la bomba, el agua remanente en los últimos centímetros de manguera puede escurrir por gravedad durante **1 a 3 segundos** (volumen insignificante de 1 a 2 ml).
-- **Efecto Sifón (Fallo Catastrófico):** El agua continúa saliendo en chorro continuo o goteo constante ininterrumpido después de 5 segundos de haber cortado la alimentación de la bomba.
-- **Protocolo de Validación ACT-06:** Llenar el depósito al 100%. Encender la bomba durante 5 segundos y apagar. Tras 5 segundos de corte, secar la boquilla con papel absorbente y dejar reposar durante 30 minutos continuos. El papel absorbente debe permanecer **completamente seco** durante toda la prueba.
-
-**Criterio de Aceptación Fase 4 (ACT-06):** Con el depósito lleno y la bomba apagada, el flujo se interrumpe totalmente tras 3 segundos y se registran cero gotas por gravedad durante 30 minutos de reposo supervisado.
-
 ---
 
-## 📌 Fase 5: Protocolo de Validación en Banco y Pruebas de Fallo
+## 📌 Fase 5: Matriz Resumen de Estados de Pruebas de Banco
 
-Con la bomba real conectada al circuito hidráulico de prueba y alimentada con su fuente de 5V 2A–3A definitiva, ejecute los siguientes 5 ensayos de estrés supervisados:
+| Código de Prueba | Subsistema Evaluado | Estado Actual | Evidencia Requerida | Bloqueo Técnico |
+| :---: | :--- | :---: | :--- | :--- |
+| **ACT-01** | Estado seguro del driver (corte en boot/reset) | `LISTA PARA BANCO` | Oscilograma de arranque y $V_{GS} \le 0.1\,\text{V}$ | Disponibilidad de protoboard e instrumental |
+| **ACT-02** | Excitación compuerta MOSFET ($V_{GS} \ge 4.5\,\text{V}$) | `LISTA PARA BANCO` | Tabla de tensiones nodales bajo carga simulada | Aprobación previa de ACT-01 |
+| **ACT-03** | Conmutación real con bomba ($V_{DS} \le 50\,\text{mV}$) | `LISTA PARA BANCO` | Termografía / DMM tras 20 s en agua | Aprobación previa de ACT-01 y ACT-02 |
+| **ACT-04** | Supresión Back-EMF con diodo 1N5819 ($V_{\text{peak}} \le 6\,\text{V}$)| `LISTA PARA BANCO` | Oscilograma de disparo único en corte | Aprobación previa de ACT-03 |
+| **ACT-05** | Sensor de nivel fail-safe (corte en $\le 50\,\text{ms}$) | `LISTA PARA BANCO` | Log serie y medición de entrada pull-up | Montaje de boya en depósito de prueba |
+| **ACT-06** | Watchdog (25s) y servidor HTTP real en silicio | `LISTA PARA BANCO` | Cronometraje WDT y ráfaga de peticiones cURL | Conexión Wi-Fi de banco en red privada |
 
-### Ensayo 5.1: Prueba de Bloqueo por Depósito Vacío (Interlock Fail-Safe)
-- **Procedimiento:** Con el sustrato seco (<20% de humedad), desplace la boya del flotador hacia abajo o desconecte su terminal para simular depósito vacío. Accione el botón manual y envíe una solicitud HTTP/automática.
-- **Resultado Esperado:** La bomba **permanece apagada en todo momento**. La FSM se mantiene en `FAULT`, la pantalla indica recarga obligatoria y el buzzer emite señal audible no intrusiva.
-
-### Ensayo 5.2: Prueba de Parada Idempotente por Nivel Óptimo
-- **Procedimiento:** Con el sensor en tierra seca, permita que el sistema inicie el ciclo de riego. Mientras la bomba impulsa líquido, vierta agua sobre la sonda hasta alcanzar $\ge 70\%$ de humedad.
-- **Resultado Esperado:** En el instante en que el promedio móvil filtrado alcanza el 70%, la bomba se apaga de inmediato (`NORMAL_TARGET_REACHED`), sin sobreimpulsos ni rebotes de conmutación.
-
-### Ensayo 5.3: Prueba de Temporizador de Seguridad de Tiempo Límite (Falla de Caudal)
-- **Procedimiento:** Mantenga el sensor al aire libre (humedad < 20%) simulando desprendimiento de la sonda o rotura de manguera. Permita que la bomba arranque.
-- **Resultado Esperado:** Al transcurrir exactamente el tiempo de seguridad máximo configurado ($T_{\text{max}} = 20\,\text{s}$), el controlador corta incondicionalmente la alimentación del motor (`MAX_TIMEOUT_EXCEEDED`), entra en `FAULT` e inhibe reintentos inmediatos.
-- **Naturaleza del Temporizador de Seguridad:**
-  Este mecanismo (`maxAutoDurationMs: 20000` y `maxSafetyWatchdogMs: 25000`) es un **temporizador lógico por software** integrado en la máquina de estados dentro de `controller.update(nowMs, ...)`. Depende de que el lazo `loop()` continúe ciclando.
-  - Para evitar que un cuelgue del software deje encendida la bomba, el firmware está diseñado de forma estrictamente no bloqueante (cero `delay()` durante el riego y cero bucles `while`).
-  - Como salvaguarda física complementaria ante un cuelgue imprevisto de la CPU o bloqueo del bus I2C, la etapa de potencia no inversora (driver NPN+PNP o MOSFET con pull-down) garantiza que si el microcontrolador entra en reset o se bloquea, la señal caerá o será reiniciada por el hardware watchdog interno (WDT de AVR o Task WDT de ESP32), apagando inmediatamente la bomba.
-
-### Ensayo 5.4: Prueba de Periodo de Cooldown (Anti-Ciclado Rápido)
-- **Procedimiento:** Tras completar un ciclo de riego de 3 segundos, pulse repetidamente el botón manual de forma consecutiva e insistente.
-- **Resultado Esperado:** El sistema ignora todas las pulsaciones consecutivas hasta que transcurre el tiempo de reposo (*cooldown* de 5 segundos), protegiendo la bomba y evitando calentamiento prematuro.
-
-### Ensayo 5.5: Estabilidad Térmica de la Etapa de Potencia (ACT-05)
-- **Procedimiento Instrumental:**
-  1. Conectar la microbomba real sumergida en agua impulsando caudal hacia la maceta.
-  2. Medir y registrar los parámetros eléctricos en régimen permanente con multímetro:
-     - Tensión de alimentación en bornes: $V_{\text{fuente}} \approx 5.0\,\text{V}$.
-     - Corriente de operación del motor: $I_{\text{bomba}} \approx 200\,\text{mA} - 350\,\text{mA}$.
-     - Caída de tensión Drain-Source ($V_{DS}$): Medida directamente entre los pines físicos Drain (Pin 2) y Source (Pin 3) del encapsulado TO-220 del MOSFET (evitando incluir caídas parásitas de pistas o jumpers de protoboard).
-  3. Registrar la temperatura ambiente del banco de pruebas ($T_{\text{amb}}$).
-  4. Ejecutar un ciclo continuo de bombeo de duración máxima ($T = 20\,\text{s}$).
-  5. Inmediatamente al finalizar los 20 segundos, medir con termómetro infrarrojo o termocupla tipo K la temperatura del encapsulado del MOSFET / Módulo Driver ($T_{\text{case}}$) y del diodo 1N5819.
-- **Plantilla de Registro de Banco (ACT-05):**
-
-| Parámetro Instrumental | Valor Medido en Banco | Límite Máximo Admisible | Evaluación |
-| :--- | :---: | :---: | :---: |
-| **Temperatura Ambiente ($T_{\text{amb}}$)** | $--^\circ\text{C}$ | Referencia ($20^\circ\text{C}-30^\circ\text{C}$) | Nominal |
-| **Corriente de Bomba ($I_{\text{bomba}}$)** | $--\,\text{mA}$ | $\le 500\,\text{mA}$ | Conforme |
-| **Caída Drain-Source ($V_{DS}$)** | $--\,\text{mV}$ | $\le 50\,\text{mV}$ ($0.05\,\text{V}$) | Criterio Aceptación |
-| **Temp. Encapsulado Driver ($T_{\text{case}}$)** | $--^\circ\text{C}$ | $\le 45^\circ\text{C}$ | Térmico |
-| **Elevación Térmica ($\Delta T = T_{\text{case}} - T_{\text{amb}}$)**| $--^\circ\text{C}$ | **$\le 15^\circ\text{C}$** | **ACT-05 OK** |
-| **Temp. Diodo Flyback 1N5819** | $--^\circ\text{C}$ | $\le 40^\circ\text{C}$ | Conforme |
-
-**Criterio Cuantitativo de Aceptación y Desglose Analítico (ACT-05):**
-- **Disipación Nominal Teórica vs Criterio de Banco:**
-  - *Cálculo nominal teórico:* Para $I_{\text{bomba}} \approx 350\,\text{mA}$ y $R_{DS(on)} \le 0.035\,\Omega$, la caída teórica en canal es $V_{DS, \text{teórico}} \approx 12.3\,\text{mV}$ y la potencia nominal $P_{\text{dis, nominal}} \approx 4.3\,\text{mW}$.
-  - *Criterio de aceptación en banco:* El valor $V_{DS} \le 50\,\text{mV}$ define la cota superior admisible para el ensayo en banco. A corriente nominal ($350\,\text{mA}$), representa $P \le 17.5\,\text{mW}$ ($R_{DS(on)} \le 0.14\,\Omega$), constituyendo un límite de rechazo conservador.
-- **Criterios Térmicos y Duración del Ensayo:**
-  - Los límites $\Delta T \le 15^\circ\text{C}$ y $T_{\text{case}} \le 45^\circ\text{C}$ son **criterios propuestos de aceptación que deben cumplirse de forma independiente**; no son resultados ya medidos.
-  - La medición se efectúa tras 20 segundos continuos a plena carga, lo que corresponde al tiempo máximo de riego seguro establecido por el watchdog del firmware. Esta duración evalúa la estabilidad durante el ciclo operativo, pero **no demuestra que se haya alcanzado el equilibrio térmico estacionario infinito**.
-  - La elevación teórica derivada mediante $R_{\theta JA} \approx 62^\circ\text{C/W}$ ($\approx 0.3^\circ\text{C}$ a 4.3 mW nominales, $\approx 1.1^\circ\text{C}$ a 17.5 mW de límite instrumental) es un cálculo analítico bajo condiciones estándar de laboratorio abierto; la temperatura final real depende de la ventilación en el gabinete, la temperatura ambiente y la pieza concreta.
-  - Se debe registrar: temperatura ambiente inicial ($T_{\text{amb}}$), temperatura del disipador/encapsulado ($T_{\text{case}}$), corriente real medida y tiempo exacto.
-- **Régimen de Corrientes del Motor:**
-  - *Corriente nominal:* $200\,\text{mA}-350\,\text{mA}$ medida en operación sumergida en agua.
-  - *Corriente de arranque transitoria ($I_{\text{inrush}}$):* Transitorio breve al energizar.
-  - *Corriente de rotor bloqueado ($I_{\text{stall}}$):* Estimada teóricamente en $0.8\,\text{A}-1.2\,\text{A}$. Queda prohibido bloquear deliberadamente el rotor de la microbomba en banco de pruebas.
-- Ausencia total de olores a sobrecalentamiento, zumbidos anómalos o deriva térmica.
-
-**Criterio de Aceptación Fase 5:** Los 5 ensayos aprobados al 100% con registro documental de mediciones.
-
----
-
-## 📌 Fase 6: Instalación Definitiva en Maceta de Interior
-
-> [!CAUTION] Condición de Aprobación para Funcionamiento Desatendido
-> La instalación definitiva en la maceta y la operación autónoma continua permanecen en estado **PENDIENTE** hasta que se completen y registren los resultados cuantitativos de las Fases 1 a 5 (Cold Checks, ensayos de tensión de compuerta, caída $V_{DS}$, elevación térmica $\Delta T$, prueba antisifón ACT-06 y prueba de interlock ACT-04). Bajo ninguna circunstancia debe dejarse el sistema operando sin supervisión hasta formalizar dicho registro.
-
-1. **Alojamiento en Gabinete:**
-   - Instala la placa perforada y la pantalla en una caja estanca o de conexiones plásticas.
-   - Asegura la sujeción de los cables con prensaestopas o pasamuros para evitar que tirones accidentales desprendan bornes.
-2. **Inserción del Sensor:**
-   - Realiza un corte vertical en la tierra con una espátula o cuchara pequeña a 5–7 cm del tallo principal.
-   - Introduce el sensor verticalmente hasta el límite serigrafiado blanco y presiona la tierra suavemente alrededor para asegurar buen contacto dieléctrico sin bolsas de aire.
-3. **Instalación de la Manguera:**
-   - Fija la boquilla de salida con una pequeña estaca de madera o plástico apuntando a la base de la raíz, respetando el Air Gap de 2 cm.
-4. **Entrega e Instrucciones al Usuario (Abuela):**
-   - Explica el significado del pitido suave intermitente: *"Si suena un pitido suave y la pantalla dice AGUA, significa que hay que rellenar el frasco"*.
-   - Explica la función del botón manual: *"Si ves la tierra algo seca y quieres darle un chorrito extra de agua, presiona este botón una vez"*.
+> [!CAUTION]
+> **Prohibición de Operación Desatendida:**
+> El sistema no debe dejarse operando sin supervisión humana continua hasta que las 6 pruebas de la matriz anterior hayan sido ejecutadas, firmadas con fecha y sus resultados se encuentren estrictamente dentro de los criterios de aceptación cuantitativos.
