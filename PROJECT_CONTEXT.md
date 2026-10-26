@@ -52,7 +52,7 @@ El firmware adopta una **Arquitectura en Capas (Layered Embedded Architecture)**
 | **Nivel de Depósito** | **Flotador Horizontal (CS-CO058)** o **Vertical** | Detección electromecánica infalible por contacto seco con `INPUT_PULLUP`. Previene cavitación y marcha en seco. |
 | **Alarma Acústica** | **Buzzer Pasivo TMB12A05** + R=220 Ω | Frecuencia grave a 850 Hz vía `tone()`. Atenuación acústica de confort para no perturbar a adultos mayores. |
 | **Interacción Manual** | **Pulsador Tact 6x6 mm** (4 pines) | Riego manual de 3 segundos bajo demanda. Conexión diagonal a GND con `INPUT_PULLUP`. |
-| **Protección Motor** | **Diodo 1N4007** (Flyback) | Supresión de fuerza contraelectromotriz (fem inductiva inversa). |
+| **Protección Motor** | **Diodo 1N5819** (Schottky) o **1N4007** | Supresión de fuerza contraelectromotriz (fem inductiva inversa). Conducción ultra rápida (<10ns) y baja caída directa ($V_F \approx 0.35V$). |
 
 ---
 
@@ -75,10 +75,12 @@ El firmware adopta una **Arquitectura en Capas (Layered Embedded Architecture)**
 - [x] **v0.1.0:** Ingeniería inversa del video de Wirecora y extracción del esquema original.
 - [x] **v0.2.0:** Rediseño con MOSFET de nivel lógico, sensor de flotador, buzzer suave y botón manual.
 - [x] **v1.0.0:** Formalización de estándares de ingeniería internacional, estructura modular en capas, ADRs, FMEA, archivo de contexto vivo (`PROJECT_CONTEXT.md`) y configuración multiplataforma PlatformIO.
-- [x] **v1.1.0 (Auditoría Técnica y Corrección de Defectos):**
+- [x] **v1.1.0 (Auditoría Técnica, Validación Integral y CI):**
   - Corrección de `platformio.ini` (aislamiento explícito de entornos con `build_src_filter`).
   - Creación de dominio centralizado desacoplado de hardware: `include/IrrigationController.h` y `include/SensorValidator.h`.
   - Eliminación total de llamadas bloqueantes `delay()` en el firmware ESP32.
   - Aseguramiento de API REST: transición de GET inseguro a POST con token de autorización en `/api/water` y rate-limiting de 5 segundos.
   - Creación de suite automatizada de 11 pruebas unitarias (`tests/test_irrigation_suite.py`) cubriendo histéresis, calibración, desbordamiento de temporizadores, idempotencia de parada y tolerancia a fallos.
+  - Pipeline de Integración Continua (CI) en `.github/workflows/ci.yml` ejecutando compilación multi-target PlatformIO y suite de tests.
+  - Protocolo de comisionamiento y chequeos en frío (Cold Checks) en `docs/05_GUIA_DE_DESARROLLO_Y_FASE_A_FASE.md`.
   - Actualización rigurosa de FMEA (IEC 60812) diferenciando mitigaciones probadas, pendientes y limitaciones físicas no mitigables por software.

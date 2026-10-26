@@ -1,8 +1,9 @@
-# 🌿 Smart FloraCare: Industrial-Grade Automated Plant Irrigation System
+# 🌿 Smart FloraCare: Robust Automated Plant Irrigation System
 
-[![PlatformIO](https://img.shields.io/badge/PlatformIO-Compatible-orange?logo=platformio)](https://platformio.org/)
+[![PlatformIO](https://img.shields.io/badge/PlatformIO-Multi--Target-orange?logo=platformio)](https://platformio.org/)
+[![CI](https://github.com/Kxvinnnn/smart-floracare/actions/workflows/ci.yml/badge.svg)](https://github.com/Kxvinnnn/smart-floracare/actions/workflows/ci.yml)
 [![C++14/17](https://img.shields.io/badge/Standard-C%2B%2B14%2F17-blue?logo=c%2B%2B)](https://en.cppreference.com/)
-[![MISRA Compliant](https://img.shields.io/badge/MISRA--C%2B%2B-Compliant%20Subset-green)](#-estándares-de-codificación-y-calidad)
+[![MISRA Subset](https://img.shields.io/badge/MISRA--C%2B%2B-Safe%20Subset-green)](#-estándares-de-codificación-y-calidad)
 [![Architecture: Layered](https://img.shields.io/badge/Architecture-5--Layer%20Embedded-brightgreen)](#-arquitectura-del-sistema)
 [![FMEA Validated](https://img.shields.io/badge/Safety-IEC%2060812%20FMEA-blueviolet)](#-análisis-de-seguridad-y-riesgos-fmea)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -135,7 +136,7 @@ La mayoría de los proyectos residenciales de riego utilizan transistores bipola
 El proyecto cuenta con un análisis formal de modos de fallo según la norma **IEC 60812** ([docs/FMEA_SEGURIDAD_Y_RIESGOS.md](docs/FMEA_SEGURIDAD_Y_RIESGOS.md)), abordando:
 - **Efecto Sifón:** Prevención mediante reglas de diseño hidráulico (depósito a nivel o inferior a la maceta y manguera suspendida).
 - **Protección contra Inundación (Watchdog):** Límite absoluto de bombeo de 25 segundos independientemente de la lectura del sensor.
-- **Supresión de Transitorios Inductivos:** Diodo de conmutación rápida 1N4007 en antiparalelo directo a bornes del motor.
+- **Supresión de Transitorios Inductivos:** Diodo de conmutación rápida 1N5819 (Schottky) o 1N4007 en antiparalelo directo a bornes del motor.
 
 ---
 
@@ -148,23 +149,26 @@ El proyecto cuenta con un análisis formal de modos de fallo según la norma **I
 git clone https://github.com/Kxvinnnn/smart-floracare.git
 cd smart-floracare
 
-# Compilar para Arduino Nano
+# Compilar para Arduino Nano V3 (ATmega328P)
 pio run -e nanoatmega328
 
+# Compilar para ESP32 DevKit V1
+pio run -e esp32dev
+
 # Subir firmware al microcontrolador conectado por USB
-pio run -e nanoatmega328 -t upload
+pio run -e nanoatmega328 -t upload  # o -e esp32dev -t upload
 
 # Abrir monitor serial
-pio device monitor -b 9600
+pio device monitor -b 115200
 ```
 
 ### Vía Arduino IDE (2.x)
 
-1. Abre el archivo `src/arduino_nano_mejorado/regador_nano_pro.ino`.
+1. Abre el archivo `src/arduino_nano_mejorado/regador_nano_pro.cpp` (o crea un `.ino` importándolo).
 2. Instala desde el Gestor de Bibliotecas:
    - `Adafruit SSD1306`
    - `Adafruit GFX Library`
-3. Selecciona la placa **Arduino Nano** y el procesador **ATmega328P** (o *Old Bootloader* según corresponda).
+3. Selecciona la placa correspondiente (**Arduino Nano** o **ESP32 Dev Module**).
 4. Compila y carga el sketch.
 
 ### Ejecución de Pruebas Automatizadas
