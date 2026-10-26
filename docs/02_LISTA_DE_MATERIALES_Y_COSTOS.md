@@ -35,7 +35,7 @@ La siguiente tabla presenta el listado completo para el montaje dual (o los íte
 | **MCU-02** | **ESP32 DevKit V1** | ESP-WROOM-32 (30 pines), Dual-Core, 3.3V, Wi-Fi 802.11 b/g/n | 1 | Solo ESP32 | Electronilab / Dinastía | \$28,000 | \$28,000 |
 | **DISP-01** | **Pantalla OLED 0.96"** | 128×64 monocromo, controlador SSD1306, bus I2C (0x3C) | 2 | 1 c/u | Electronilab / RoosTech | \$13,500 | \$27,000 |
 | **SENS-01** | **Sensor de Suelo Capacitivo v1.2** | Salida analógica proporcional. **Nano a 5V; ESP32 obligatoriamente a 3.3V** | 2 | 1 c/u | Mecabot / RoosTech | \$6,500 | \$13,000 |
-| **PWR-01** | **Driver de Bomba (Etapa Oficial ESP32)** | **Módulo MOSFET LR7843 / AOD4184 con Optoacoplador** o Módulo Relé 5V | 1 | Solo ESP32 | Mecabot / Electronilab | \$4,500 | \$4,500 |
+| **PWR-01** | **Driver de Bomba (Etapa Oficial ESP32)** | **Módulo HW-517 (Dual AOD4184A) o Módulo Relé 5V SRD-05VDC (Low Trigger)** | 1 | Solo ESP32 | Mecabot / Electronilab | \$4,500 | \$4,500 |
 | **PWR-02** | **Driver de Bomba (Etapa Oficial Nano)** | **MOSFET IRLZ44N Logic-Level** (Vishay/Infineon, $R_{DS(on)} \le 0.035\,\Omega$ a 5V) | 1 | Solo Nano | Almacén de electrónica | \$3,000 | \$3,000 |
 | **DIO-01** | **Diodo Flyback de Potencia** | **1N5819 Schottky** ($40\,\text{V}, 1\,\text{A}, V_F \approx 0.35\,\text{V}$, $<10\,\text{ns}$). Alternativa: 1N4007 | 2 | 1 c/u | Almacén de electrónica | \$600 | \$1,200 |
 | **SW-01** | **Sensor de Flotador de Nivel** | Boya magnética con interruptor reed hermético (CS-CO058 / Horizontal) | 2 | 1 c/u | [Mecabot](https://www.mecabot.com/products/sensor-de-nivel-de-agua-horizontal-cs-co058) / Electronilab | \$12,900 | \$25,800 |

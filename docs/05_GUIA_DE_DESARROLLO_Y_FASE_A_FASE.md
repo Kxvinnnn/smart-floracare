@@ -68,20 +68,27 @@ Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes
 
 ### 2.2 Protocolo de Ensayos en Frío (Sin Conectar Fuente)
 
-Antes de insertar los microcontroladores en sus zócalos o aplicar cualquier tensión eléctrica externa, ejecute las siguientes mediciones con un multímetro digital (DMM):
+#### Protocolo de Desconexión Previa Obligatoria:
+Para evitar mediciones erróneas causadas por caminos parásitos o componentes activos:
+1. **Desconectar la fuente de alimentación externa de 5V** y desenchufar el cable USB de la computadora.
+2. **Retirar el microcontrolador** (Nano o ESP32) de su zócalo o protoboard.
+3. **Desconectar el motor de la bomba** (dejar sus cables desconectados temporalmente; la bobina del motor tiene una resistencia interna de $10\,\Omega - 30\,\Omega$ que falsearía la medición del diodo flyback).
+4. **Desconectar el sensor de humedad y la pantalla OLED**.
 
-| Código / Punto de Prueba | Medición con DMM | Valor Esperado | Criterio de Aceptación / Rechazo |
+Ejecute las siguientes mediciones con un multímetro digital (DMM) calibrado sobre la placa base/protoboard:
+
+| Código / Punto de Prueba | Medición con DMM | Procedimiento y Dinámica de Medición | Criterio de Aceptación / Rechazo |
 | :--- | :--- | :--- | :--- |
-| **ACT-01: Aislamiento Riel Potencia** | Resistencia entre riel 5V y GND (placa sin energizar) | Curva de carga capacitiva ascendente estabilizada en $> 5\,\text{k}\Omega$ | **Rechazo inmediato si $R < 10\,\Omega$** o hay continuidad directa (bip corto franco). |
-| **ACT-01b: Gate a GND del Driver** | Resistencia entre pin Gate/Input y Source/GND | $10\,\text{k}\Omega \pm 5\%$ (resistencia pull-down) | $< 100\,\Omega$ (gate en corto) o abierta ($> 1\,\text{M}\Omega$) |
-| **ACT-02: Polaridad Directa Flyback** | Modo diodo: Sonda roja en Ánodo (Drain), negra en Cátodo (+5V) | $0.25\,\text{V} - 0.40\,\text{V}$ (1N5819 Schottky) | $0.00\,\text{V}$ (diodo perforado) o abierto en directa |
-| **ACT-02b: Polaridad Inversa Flyback**| Modo diodo: Sonda roja en Cátodo (+5V), negra en Ánodo (Drain) | `OL` o circuito abierto ($> 2.0\,\text{V}$) | Tensión baja o conducción inversa (diodo invertido) |
-| **Continuidad de GND** | Continuidad entre GND de MCU, GND de fuente y retorno de bomba | $0.0\,\Omega - 0.5\,\Omega$ con bip audible | $> 1.0\,\Omega$ o circuito abierto (tierra flotante) |
+| **ACT-01: Aislamiento Riel Potencia** | Resistencia entre riel 5V y GND (placa aislada sin MCU ni módulos) | La corriente del DMM cargará los condensadores de desacople ($100\,\mu\text{F}$ / $100\,\text{nF}$). La lectura iniciará en valores bajos y ascenderá de forma continua durante 2 a 5 segundos hasta estabilizarse en $> 5\,\text{k}\Omega$ (o circuito abierto `OL`). | **Aceptado:** Ascenso dinámico hacia $> 5\,\text{k}\Omega$.<br/>**Rechazo Inmediato:** $R < 10\,\Omega$ estático o continuidad acústica permanente (cortocircuito franco de pista o puente de estaño). |
+| **ACT-01b: Gate a GND del Driver** | Resistencia entre pin Gate/Input y Source/GND | Medir resistencia directa con escala de $20\,\text{k}\Omega$. | $10\,\text{k}\Omega \pm 5\%$ (resistencia pull-down de seguridad). Rechazar si $< 100\,\Omega$ o circuito abierto ($> 1\,\text{M}\Omega$). |
+| **ACT-02: Polaridad Directa Flyback** | Modo diodo: Sonda roja en Ánodo (Drain), negra en Cátodo (+5V) | **Bomba desconectada**. Mide directamente la unión semiconductora del 1N5819 Schottky. | **$0.25\,\text{V} - 0.40\,\text{V}$**. Rechazar si indica $0.00\,\text{V}$ (diodo perforado en corto) o `OL` (diodo abierto o falso contacto). |
+| **ACT-02b: Polaridad Inversa Flyback**| Modo diodo: Sonda roja en Cátodo (+5V), negra en Ánodo (Drain) | **Bomba desconectada**. Verifica polarización inversa del diodo. | `OL` o $> 2.0\,\text{V}$ (bloqueo inverso total). Rechazar si conduce o muestra caída baja (diodo soldado al revés). |
+| **Continuidad de GND** | Continuidad entre GND de bornera de alimentación, GND del MCU y Source del MOSFET | Escala de continuidad / resistencia baja. | $0.0\,\Omega - 0.5\,\Omega$ con bip audible claro. Rechazar si $> 1.0\,\Omega$ (tierra flotante). |
 
-> [!CAUTION] ¡Peligro de Destrucción por Polaridad Invertida!
-> Si el diodo 1N5819 se conecta invertido (cátodo a Drain y ánodo a +5V), al encender el MOSFET se producirá un cortocircuito directo entre 5V y GND a través del diodo, destruyendo el MOSFET de forma instantánea. Verifica la franja blanca/plateada antes de alimentar.
+> [!CAUTION] ¡Peligro Crítico: Verificación de Diodo Flyback!
+> Si el diodo 1N5819 se conecta invertido (cátodo a Drain y ánodo a +5V), al activarse el MOSFET se creará un cortocircuito directo entre el riel de 5V y GND a través del diodo, destruyendo instantáneamente el transistor de conmutación. Confirme visualmente la banda plateada (cátodo) hacia el polo positivo (+5V) antes de avanzar.
 
-**Criterio de Aceptación Fase 2 (ACT-01 / ACT-02):** Todos los valores registrados dentro de tolerancia. Ausencia demostrable de cortocircuitos de baja impedancia ($R < 10\,\Omega$).
+**Criterio de Aceptación Fase 2 (ACT-01 / ACT-02):** Todos los valores registrados dentro de tolerancia. Cero cortocircuitos francos y polaridad del diodo 1N5819 100% verificada con la bomba desconectada.
 
 ---
 
@@ -105,20 +112,34 @@ El encendido del circuito debe realizarse de forma escalonada, **sin conectar la
 
 ### Paso 3.3: Verificación de Entradas Analógicas y Digitales (ACT-03 y ACT-04)
 
-- **Sensor de Humedad Capacitivo (ACT-03):**
-  - Ejecutar ráfaga de 10 lecturas en serie con el sensor suspendido en el aire seco ($ADC_{\text{aire}}$). Calcular media y desviación estándar $\sigma$.
-  - Sumergir la sonda hasta la línea límite en un vaso con agua corriente y registrar 10 lecturas consecutivas ($ADC_{\text{agua}}$).
-  - **Criterio Cuantitativo de Aceptación (ACT-03):**
-    - En Arduino Nano (10 bits, 5V): $|ADC_{\text{aire}} - ADC_{\text{agua}}| \ge 150\,\text{cuentas}$ con $\sigma \le 5\,\text{cuentas}$.
-    - En ESP32 (12 bits muestreado a 3.3V): $|ADC_{\text{aire}} - ADC_{\text{agua}}| \ge 200\,\text{cuentas}$ con $\sigma \le 15\,\text{cuentas}$.
-    - La cabecera superior y componentes SMD deben permanecer totalmente secos y sin filtración (barniz íntegro).
-- **Flotador de Nivel de Agua (ACT-04):**
-  - Elevar la boya manualmente: el monitor serie y display deben indicar `WATER OK` (contacto cerrado a GND, nivel 0 lógico).
-  - Dejar caer la boya o desconectar un cable: el display debe indicar `LOW WATER`, la FSM debe conmutar inmediatamente a `FAULT`, el zumbador emitirá tren de pulsos suaves y cualquier solicitud de bomba debe ser rechazada de inmediato.
-- **Pulsador Manual de Riego:**
-  - Presionar el botón: el LED de prueba conectado a Drain debe conmutar encendido exactamente durante 3 segundos y apagarse limpiamente.
+#### A. Calibración y Sensibilidad del Sensor Capacitivo (ACT-03):
+1. **Ensayo de Rango Extremo (Aire vs Agua):**
+   - Registrar una ráfaga de 10 lecturas consecutivas con el sensor suspendido en aire seco ($ADC_{\text{aire}}$). Calcular media ($\mu$) y desviación estándar ($\sigma$).
+   - Sumergir la sonda verticalmente hasta la línea blanca serigrafiada en un vaso con agua limpia ($ADC_{\text{agua}}$) y registrar 10 lecturas.
+   - **Criterios de Sensibilidad Cuantitativa:**
+     - En Arduino Nano (10 bits, 5.0V): $|ADC_{\text{aire}} - ADC_{\text{agua}}| \ge 150\,\text{cuentas}$ con $\sigma \le 5\,\text{cuentas}$.
+     - En ESP32 (12 bits muestreado a 3.3V): $|ADC_{\text{aire}} - ADC_{\text{agua}}| \ge 200\,\text{cuentas}$ con $\sigma \le 15\,\text{cuentas}$.
+2. **Calibración con Sustrato Real de la Planta (Maceta):**
+   - Insertar el sensor en la maceta con tierra completamente seca (antes del primer riego). Anotar el valor $ADC_{\text{seco}}$.
+   - Regar la maceta a capacidad de campo hasta que comience a drenar por la base. Dejar reposar 15 minutos para que el agua gravitacional escurra y medir $ADC_{\text{optimo}}$.
+   - Ajustar los parámetros en `include/IrrigationController.h`:
+     - Umbral de inicio automático: $ADC_{\text{auto\_start}} \approx ADC_{\text{seco}} + 0.30 \times (ADC_{\text{optimo}} - ADC_{\text{seco}})$.
+     - Umbral de corte de riego: $ADC_{\text{target}} \approx ADC_{\text{optimo}}$.
+   - Verificar que la electrónica SMD superior y el conector del sensor permanezcan secos y barnizados, sin humedad capilar.
 
-**Criterio de Aceptación Fase 3:** Telemetría visual en OLED correcta, respuestas cuantitativas según ACT-03 ($|\Delta ADC| \ge 150/200$), interbloqueo fail-safe ACT-04 verificado y actuador de prueba conmutando sin bloqueos.
+#### B. Interbloqueo Fail-Safe del Flotador de Nivel (ACT-04):
+1. **Verificación en Arduino Nano (Pin D4 con `INPUT_PULLUP`):**
+   - Boya arriba (depósito con agua): Contacto cerrado a GND $\to$ `digitalRead(4) == LOW` $\to$ `waterLevelOk = true`. OLED muestra `WATER OK`.
+   - Boya abajo o cable cortado/desconectado: Entrada en estado flotante traccionada a 5V por pull-up interno $\to$ `digitalRead(4) == HIGH` $\to$ `waterLevelOk = false`. OLED muestra `LOW WATER`, FSM entra en `FAULT`.
+   - **Prueba de Bloqueo:** Presionar el botón manual o enviar solicitud de riego. Verificar con voltímetro que el pin D3 (Gate) permanece en $0.00\,\text{V}$.
+2. **Verificación en ESP32 (GPIO 19 con `INPUT_PULLUP`):**
+   - Repetir exactamente el mismo ensayo. Desconectar la borna del sensor de nivel simulando desprendimiento físico.
+   - Comprobar en el Monitor Serie el mensaje `[INTERLOCK] Agua baja detectada. Bombeo bloqueado.` y verificar que el GPIO 18 (Trigger) permanece en $0.00\,\text{V}$.
+
+#### C. Pulsador Manual de Riego:
+- Presionar el botón manual una vez: el LED de prueba conectado a Drain debe encenderse exactamente durante 3 segundos y apagarse limpiamente sin trepidaciones.
+
+**Criterio de Aceptación Fase 3:** Telemetría visual en OLED correcta, respuestas cuantitativas según ACT-03 ($|\Delta ADC| \ge 150/200$), calibración de sustrato documentada, interbloqueo fail-safe ACT-04 verificado en ambas plataformas (cero voltios en salida ante fallo) y pulsador conmutando sin bloqueos.
 
 ---
 
@@ -135,7 +156,12 @@ El encendido del circuito debe realizarse de forma escalonada, **sin conectar la
 3. **Agujero rompe-sifón (Siphon Break Hole):** En caso de que el recorrido del tubo obligatoriamente pase por encima del nivel de agua, practica una perforación microscópica (0.5 mm con una aguja caliente) en el tramo de manguera que queda dentro del depósito, por encima del nivel máximo de agua. Esto introduce aire e interrumpe la columna de vacío cuando la bomba se detiene.
 4. **Filtro de succión:** Coloca un tramo de malla fina de nylon o tul alrededor de la rejilla de entrada de la microbomba sumergible para evitar que suciedad o pelusas bloqueen el impulsor magnético.
 
-**Criterio de Aceptación Fase 4:** Con el depósito lleno y la bomba apagada, no debe observarse ninguna gota saliendo del extremo de la manguera por gravedad.
+#### Distinción Operativa entre Sifón Crítico y Drenaje Residual (ACT-06):
+- **Drenaje Capilar Residual Normal:** Al detenerse la bomba, el agua remanente en los últimos centímetros de manguera puede escurrir por gravedad durante **1 a 3 segundos** (volumen insignificante de 1 a 2 ml).
+- **Efecto Sifón (Fallo Catastrófico):** El agua continúa saliendo en chorro continuo o goteo constante ininterrumpido después de 5 segundos de haber cortado la alimentación de la bomba.
+- **Protocolo de Validación ACT-06:** Llenar el depósito al 100%. Encender la bomba durante 5 segundos y apagar. Tras 5 segundos de corte, secar la boquilla con papel absorbente y dejar reposar durante 30 minutos continuos. El papel absorbente debe permanecer **completamente seco** durante toda la prueba.
+
+**Criterio de Aceptación Fase 4 (ACT-06):** Con el depósito lleno y la bomba apagada, el flujo se interrumpe totalmente tras 3 segundos y se registran cero gotas por gravedad durante 30 minutos de reposo supervisado.
 
 ---
 
@@ -160,11 +186,30 @@ Con la bomba real conectada al circuito hidráulico de prueba y alimentada con s
 - **Resultado Esperado:** El sistema ignora todas las pulsaciones consecutivas hasta que transcurre el tiempo de reposo (*cooldown* de 5 segundos), protegiendo la bomba y evitando calentamiento prematuro.
 
 ### Ensayo 5.5: Estabilidad Térmica de la Etapa de Potencia (ACT-05)
-- **Procedimiento:** Durante un ciclo de bombeo continuo supervisado de duración máxima autorizada ($T = 20\,\text{s}$), mida la temperatura del encapsulado del MOSFET / Módulo Driver y del diodo flyback 1N5819 con termómetro IR o termocupla.
-- **Criterio Cuantitativo de Aceptación (ACT-05):**
-  - La elevación de temperatura sobre la temperatura ambiente del banco debe ser $\Delta T \le 15^\circ\text{C}$ (temperatura de encapsulado $< 40^\circ\text{C}$ a $25^\circ\text{C}$ ambiente).
-  - Caída de tensión entre Drain y Source en saturación: $V_{DS} \le 0.05\,\text{V}$.
-  - Ausencia total de olores a sobrecalentamiento o deriva térmica.
+- **Procedimiento Instrumental:**
+  1. Conectar la microbomba real sumergida en agua impulsando caudal hacia la maceta.
+  2. Medir y registrar los parámetros eléctricos en régimen permanente con multímetro:
+     - Tensión de alimentación en bornes: $V_{\text{fuente}} \approx 5.0\,\text{V}$.
+     - Corriente de operación del motor: $I_{\text{bomba}} \approx 200\,\text{mA} - 350\,\text{mA}$.
+     - Caída de tensión en saturación entre Drain y Source: $V_{DS}$.
+  3. Registrar la temperatura ambiente del banco de pruebas ($T_{\text{amb}}$).
+  4. Ejecutar un ciclo continuo de bombeo de duración máxima ($T = 20\,\text{s}$).
+  5. Inmediatamente al finalizar los 20 segundos, medir con termómetro infrarrojo o termocupla tipo K la temperatura del encapsulado del MOSFET / Módulo Driver ($T_{\text{case}}$) y del diodo 1N5819.
+- **Plantilla de Registro de Banco (ACT-05):**
+
+| Parámetro Instrumental | Valor Medido en Banco | Límite Máximo Admisible | Evaluación |
+| :--- | :---: | :---: | :---: |
+| **Temperatura Ambiente ($T_{\text{amb}}$)** | $--^\circ\text{C}$ | Referencia ($20^\circ\text{C}-30^\circ\text{C}$) | Nominal |
+| **Corriente de Bomba ($I_{\text{bomba}}$)** | $--\,\text{mA}$ | $\le 500\,\text{mA}$ | Conforme |
+| **Caída Drain-Source ($V_{DS}$)** | $--\,\text{mV}$ | $\le 50\,\text{mV}$ ($0.05\,\text{V}$) | Saturación |
+| **Temp. Encapsulado Driver ($T_{\text{case}}$)** | $--^\circ\text{C}$ | $\le 45^\circ\text{C}$ | Térmico |
+| **Elevación Térmica ($\Delta T = T_{\text{case}} - T_{\text{amb}}$)**| $--^\circ\text{C}$ | **$\le 15^\circ\text{C}$** | **ACT-05 OK** |
+| **Temp. Diodo Flyback 1N5819** | $--^\circ\text{C}$ | $\le 40^\circ\text{C}$ | Conforme |
+
+**Criterio Cuantitativo de Aceptación (ACT-05):**
+- $\Delta T \le 15^\circ\text{C}$ sobre la temperatura ambiente tras 20 segundos continuos a plena carga.
+- Caída $V_{DS} \le 50\,\text{mV}$ (indicativa de $R_{DS(on)} \le 0.14\,\Omega$ a $350\,\text{mA}$).
+- Ausencia total de olores a sobrecalentamiento, zumbidos anómalos o deriva térmica.
 
 **Criterio de Aceptación Fase 5:** Los 5 ensayos aprobados al 100% con registro documental de mediciones.
 

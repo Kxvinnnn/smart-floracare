@@ -69,6 +69,16 @@ class TestFirmwareSecurity(unittest.TestCase):
         self.assertIn("pinMode(PIN_FLOTADOR_AGUA, INPUT_PULLUP);", nano_content)
         self.assertIn("digitalRead(PIN_FLOTADOR_AGUA) == LOW", nano_content)
 
+    def test_http_api_security_status_codes(self):
+        """Verify ESP32 handleApiWater handles 405, 403, 401, and 409 defensive status codes."""
+        with open(ESP32_CPP, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn('server.send(405, "application/json"', content)
+        self.assertIn('server.send(403, "application/json"', content)
+        self.assertIn('server.send(401, "application/json"', content)
+        self.assertIn('server.send(409, "application/json"', content)
+        self.assertIn('server.send(303);', content)
+
     def test_no_infinite_blocking_loops_in_loop(self):
         """Verify runtime loops do not contain unconstrained while(true) loops."""
         for path in [ESP32_CPP, NANO_CPP]:
