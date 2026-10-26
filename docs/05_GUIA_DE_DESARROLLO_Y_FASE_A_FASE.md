@@ -121,10 +121,17 @@ El encendido del circuito debe realizarse de forma escalonada, **sin conectar la
      - En ESP32 (12 bits muestreado a 3.3V): $|ADC_{\text{aire}} - ADC_{\text{agua}}| \ge 200\,\text{cuentas}$ con $\sigma \le 15\,\text{cuentas}$.
 2. **Calibración con Sustrato Real de la Planta (Maceta):**
    - Insertar el sensor en la maceta con tierra completamente seca (antes del primer riego). Anotar el valor $ADC_{\text{seco}}$.
-   - Regar la maceta a capacidad de campo hasta que comience a drenar por la base. Dejar reposar 15 minutos para que el agua gravitacional escurra y medir $ADC_{\text{optimo}}$.
-   - Ajustar los parámetros en `include/IrrigationController.h`:
-     - Umbral de inicio automático: $ADC_{\text{auto\_start}} \approx ADC_{\text{seco}} + 0.30 \times (ADC_{\text{optimo}} - ADC_{\text{seco}})$.
-     - Umbral de corte de riego: $ADC_{\text{target}} \approx ADC_{\text{optimo}}$.
+   - Regar la maceta a capacidad de campo hasta que comience a drenar por la base. Dejar reposar 15 minutos para que el agua gravitacional escurra y registrar $ADC_{\text{campo}}$.
+   - **Mapeo en `CalibrationProfile` de `SensorValidator.h`:**
+     La función `SensorValidator::calculateMoisturePercent` realiza la conversión determinista:
+     $$\text{Humedad (\%)} = \frac{\text{airRaw} - \text{rawADC}}{\text{airRaw} - \text{waterRaw}} \times 100$$
+     Para calibrar el sistema al sustrato real, configure en el perfil de calibración del firmware:
+     - `prof.airRaw = ADC_seco` (corresponde al $0\%$ de humedad útil).
+     - `prof.waterRaw = ADC_campo` (corresponde al $100\%$ de capacidad de campo).
+     - `prof.minDelta = (ADC_seco - ADC_campo) / 2`.
+   - Con esta asignación, los umbrales de la FSM en `ControllerConfig`:
+     - `autoStartMoisturePct: 20` (inicia el riego cuando el agua disponible cae al $\le 20\%$).
+     - `autoStopMoisturePct: 70` (corta el riego al recuperar el $70\%$ de capacidad de campo).
    - Verificar que la electrónica SMD superior y el conector del sensor permanezcan secos y barnizados, sin humedad capilar.
 
 #### B. Interbloqueo Fail-Safe del Flotador de Nivel (ACT-04):
@@ -177,9 +184,13 @@ Con la bomba real conectada al circuito hidráulico de prueba y alimentada con s
 - **Procedimiento:** Con el sensor en tierra seca, permita que el sistema inicie el ciclo de riego. Mientras la bomba impulsa líquido, vierta agua sobre la sonda hasta alcanzar $\ge 70\%$ de humedad.
 - **Resultado Esperado:** En el instante en que el promedio móvil filtrado alcanza el 70%, la bomba se apaga de inmediato (`NORMAL_TARGET_REACHED`), sin sobreimpulsos ni rebotes de conmutación.
 
-### Ensayo 5.3: Prueba de Watchdog de Tiempo Límite (Falla de Caudal)
+### Ensayo 5.3: Prueba de Temporizador de Seguridad de Tiempo Límite (Falla de Caudal)
 - **Procedimiento:** Mantenga el sensor al aire libre (humedad < 20%) simulando desprendimiento de la sonda o rotura de manguera. Permita que la bomba arranque.
 - **Resultado Esperado:** Al transcurrir exactamente el tiempo de seguridad máximo configurado ($T_{\text{max}} = 20\,\text{s}$), el controlador corta incondicionalmente la alimentación del motor (`MAX_TIMEOUT_EXCEEDED`), entra en `FAULT` e inhibe reintentos inmediatos.
+- **Naturaleza del Temporizador de Seguridad:**
+  Este mecanismo (`maxAutoDurationMs: 20000` y `maxSafetyWatchdogMs: 25000`) es un **temporizador lógico por software** integrado en la máquina de estados dentro de `controller.update(nowMs, ...)`. Depende de que el lazo `loop()` continúe ciclando.
+  - Para evitar que un cuelgue del software deje encendida la bomba, el firmware está diseñado de forma estrictamente no bloqueante (cero `delay()` durante el riego y cero bucles `while`).
+  - Como salvaguarda física complementaria ante un cuelgue imprevisto de la CPU o bloqueo del bus I2C, la etapa de potencia no inversora (driver NPN+PNP o MOSFET con pull-down) garantiza que si el microcontrolador entra en reset o se bloquea, la señal caerá o será reiniciada por el hardware watchdog interno (WDT de AVR o Task WDT de ESP32), apagando inmediatamente la bomba.
 
 ### Ensayo 5.4: Prueba de Periodo de Cooldown (Anti-Ciclado Rápido)
 - **Procedimiento:** Tras completar un ciclo de riego de 3 segundos, pulse repetidamente el botón manual de forma consecutiva e insistente.

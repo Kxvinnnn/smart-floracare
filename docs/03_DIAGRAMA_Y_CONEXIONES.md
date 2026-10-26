@@ -63,47 +63,124 @@ Este documento proporciona los esquemas detallados de cableado pin a pin para la
 
 ---
 
-## 3. Diagrama Esquemático de Potencia y Señal Unificado
+## 3. Diagramas Esquemáticos Completos por Plataforma
+
+Para evitar cualquier ambigüedad de cableado entre los sistemas de 5.0V (Nano) y 3.3V (ESP32), se presentan los esquemas eléctricos completos e independientes para cada controlador:
+
+### 3.1 Esquema Eléctrico Completo: Arduino Nano V3 (Lógica Nativa 5.0V)
+
+En el Arduino Nano, el pin digital entrega entre $4.8\,\text{V}$ y $4.9\,\text{V}$, permitiendo el accionamiento directo de la compuerta del **MOSFET IRLZ44N** con lógica directa (`HIGH = ON`, `LOW = OFF`):
 
 ```text
                +5V Fuente Externa Regulada (2A - 3A)
                   |
-         +--------+--------------------------+
-         |                                   |
-       [5V / VIN Micro]                 Bomba 5V (+)
-    +-------------------+                    |
-    | MICROCONTROLADOR  |                  [ M ]
-    | (Nano o ESP32)    |                    |
-    |                   |               +----+----+
-    |   PIN GATE BOMBA  |               |         |
-    |   (D3 o GPIO18)   |          [DIODO FLYBACK]
-    |         |         |          (1N5819 / 1N4007)
-    |       [1 kΩ]      |          (Cátodo al +)  |
-    |         |         |               |         |
-    |         +------------> Gate       +----+----+
-    |                   |                    |
-    |        [10 kΩ]    |               Drain| (IRLZ44N o FQP30N06L)
-    |      (Pull-down)  |               +----+
-    |         |         |               |  MOSFET N-Channel
-    |        GND        |               +----+
-    |                   |                    | Source
-    |   PIN BUZZER      |                    |
-    |   (D5 o GPIO23)   |                    |
-    |         |         |                    |
-    |       [220 Ω]     |                    |
-    |         |         |                    |
-    |   [BUZZER PASIVO] |                    |
-    |         |         |                    |
-    |        GND        |                    |
-    |                   |                    |
-    |   FLOTADOR (D4/19)---------[BOYA MECÁNICA]--------> GND (INPUT_PULLUP)
-    |   BOTÓN (D2/4)------------[TACT SWITCH]-----------> GND (INPUT_PULLUP)
-    |                   |                    |
-    |        GND        |                    |
-    +---------+---------+--------------------+
-              |
-             GND Fuente Externa (Tierra común unificada)
+         +--------+------------------------------------+
+         |                                             |
+       [5V Pin]                                  Bomba 5V (+)
+    +-----------------+                                |
+    |  ARDUINO NANO   |                              [ M ] (Microbomba DC)
+    |  (ATmega328P)   |                                |
+    |                 |                           +----+----+
+    |  D3 (Disparo)   |                           |    |    |
+    |        |        |                           |  [ 1N5819 ] Diodo Flyback
+    |     [1 kΩ]      |                           |  (Cátodo con franja al +)
+    |        |        |                           |    |    |
+    |        +-------------------> Pin 1: Gate    +----+----+
+    |                 |                    |           |
+    |     [10 kΩ]     |                    |      Pin 2: Drain
+    |   (Pull-down)   |                    |      +----+
+    |        |        |                    |      |    | IRLZ44N (TO-220)
+    |       GND       |                    |      +----+
+    |                 |                    |           | Pin 3: Source
+    |  D5 (Buzzer)    |                    |           |
+    |        |        |                    |           |
+    |     [220 Ω]     |                    |           |
+    |        |        |                    |           |
+    |  [BUZZER PASIVO]|                    |           |
+    |        |        |                    |           |
+    |       GND       |                    |           |
+    |                 |                    |           |
+    |  D4 (Flotador)---------[BOYA MAGNÉTICA CS-CO058]---------> GND (INPUT_PULLUP)
+    |  D2 (Pulsador)---------[TACT SWITCH 6x6 mm]-------------> GND (INPUT_PULLUP)
+    |  A4 (SDA)-------------> SDA Pantalla OLED SSD1306 (0x3C)
+    |  A5 (SCL)-------------> SCL Pantalla OLED SSD1306 (0x3C)
+    |  A0 (Sensor)----------> Señal Sensor Capacitivo v1.2 (Alimentado a 5V)
+    |                 |                                |
+    |       GND       |                                |
+    +--------+--------+--------------------------------+
+             |
+            GND Fuente Externa (Tierra común unificada)
 ```
+
+---
+
+### 3.2 Esquema Eléctrico Completo: ESP32 DevKit V1 (Driver No Inversor NPN+PNP)
+
+En el ESP32 (lógica de 3.3V), la compuerta del IRLZ44N **no debe conectarse directamente** debido a la falta de garantía de $R_{DS(on)}$ a $\le 3.3\,\text{V}$. Se utiliza un **Driver No Inversor Bipolar de 2 Etapas (Q1 NPN + Q2 PNP)** que eleva la señal de compuerta a **+4.85V plenos**, garantizando que la bomba permanezca **apagada durante el arranque, reset o desconexión del microcontrolador**:
+
+```text
+               +5V Fuente Externa Regulada (2A - 3A)
+                  |
+         +--------+-----------------------+-------------------------+
+         |                                |                         |
+      [VIN Pin]                           | (Riel +5V)        Bomba 5V (+)
+    +-----------------+                   |                         |
+    |  ESP32 DEVKIT   |                   +---[R_pu: 10 kΩ]---+   [ M ] (Microbomba DC)
+    |  (30 Pines)     |                   |                   |     |
+    |                 |                   |  Emisor (Pin 1)   |     |
+    |  GPIO 18        |                   |  +-------------+  |     |
+    |  (Disparo 3.3V) |                   +--| Q2: 2N3906  |  |     |
+    |        |        |                      | (PNP TO-92) |  |     |
+    |    [R1: 2.2 kΩ] |                      +-------------+  |     |
+    |        |        |                   Base (Pin 2) |      |     |
+    |        +-------+------> Base (Pin 2)     |       |      |     |
+    |                |        +-------------+  |       |      |     |
+    |         [R_pd1: 10 kΩ]  | Q1: 2N2222A |  |       |      |     |
+    |                |        | (NPN TO-92) |  |       |      |     |
+    |               GND       +-------------+  |       |      |     |
+    |                         Emisor (Pin 1)|  |       |      |     |
+    |                               |          |       |      |     |
+    |                              GND         |       |      |     |
+    |                                          |       |      |     |
+    |    Colector Q1 (Pin 3) ------------------+       |      |     |
+    |                                                  |      |     |
+    |    Colector Q2 (Pin 3: Salida +4.85V) -----------+      |     |
+    |                                                  |      |     |
+    |                                    +-------------+      |     |
+    |                                    |                    |     |
+    |                               Pin 1: Gate               |     |
+    |                                    |                    |     |
+    |                              [R_pd2: 10 kΩ]             |     |
+    |                                    |                    |     |
+    |                                   GND                   |     |
+    |                                                         |     |
+    |                                                 Pin 2: Drain  |
+    |                                                 +----+  |     |
+    |                                                 |    |  +-----+-----+
+    |                                                 +----+  |     |     |
+    |                                                 Pin 3:  | [1N5819]  |
+    |                                                 Source  | (Schottky)|
+    |                                                    |    +-----+-----+
+    |                                                    |          |
+    |  GPIO 23 (Buzzer)-----[220 Ω]-----> [BUZZER]-----> GND        |
+    |  GPIO 19 (Flotador)---[BOYA CS-CO058]------------> GND        |
+    |  GPIO 4  (Pulsador)---[TACT SWITCH]--------------> GND        |
+    |  GPIO 21 (SDA)--------> SDA OLED SSD1306 (0x3C)               |
+    |  GPIO 22 (SCL)--------> SCL OLED SSD1306 (0x3C)               |
+    |  3V3 Pin -------------> VCC Sensor Capacitivo v1.2 (¡3.3V!)   |
+    |  GPIO 34 (Sensor)-----> Salida Analógica Sensor Capacitivo    |
+    |                                                    |          |
+    |       GND                                          |          |
+    +--------+-------------------------------------------+----------+
+             |
+            GND Fuente Externa (Tierra común unificada)
+```
+
+#### Pines y Encapsulados de los Semiconductores (Vista Frontal Cara Plana):
+- **Q1 (2N2222A - NPN TO-92):** Pin 1 = Emisor (a GND), Pin 2 = Base (desde GPIO 18 vía $R_1$), Pin 3 = Colector (a Base de Q2 vía $R_2$).
+- **Q2 (2N3906 - PNP TO-92):** Pin 1 = Emisor (a +5.0V), Pin 2 = Base (con $R_{pu} = 10\,\text{k}\Omega$ a +5V y $R_2 = 2.2\,\text{k}\Omega$ a Colector Q1), Pin 3 = Colector (a Gate de M1).
+- **M1 (IRLZ44N - N-MOSFET TO-220):** Pin 1 = Gate (desde Colector Q2 con $R_{pd2} = 10\,\text{k}\Omega$ a GND), Pin 2 = Drain (a retorno de bomba), Pin 3 = Source (a GND).
+- **D1 (1N5819 Schottky):** Cátodo (franja plateada) al borne positivo (+5V) del motor; Ánodo al borne negativo (Drain) del motor.
 
 ---
 
