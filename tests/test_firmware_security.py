@@ -79,6 +79,17 @@ class TestFirmwareSecurity(unittest.TestCase):
         self.assertIn('server.send(409, "application/json"', content)
         self.assertIn('server.send(303);', content)
 
+    def test_unified_irrigation_timing_limits(self):
+        """Verify Nano and ESP32 share identical 20s auto limit and 25s watchdog limit."""
+        with open(ESP32_CPP, "r", encoding="utf-8") as f:
+            esp_content = f.read()
+        with open(NANO_CPP, "r", encoding="utf-8") as f:
+            nano_content = f.read()
+        self.assertIn("20000,", esp_content)
+        self.assertIn("25000,", esp_content)
+        self.assertIn("20000,", nano_content)
+        self.assertIn("25000,", nano_content)
+
     def test_no_infinite_blocking_loops_in_loop(self):
         """Verify runtime loops do not contain unconstrained while(true) loops."""
         for path in [ESP32_CPP, NANO_CPP]:

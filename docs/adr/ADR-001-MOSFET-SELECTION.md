@@ -44,7 +44,7 @@ Para reemplazar el BJT se evaluaron MOSFETs de nivel lógico, distinguiendo estr
 2. **Plataforma ESP32 DevKit V1 (Controlador 3.3V nativo):**
    - **Opción Principal Recomendada:** Utilizar un **Módulo MOSFET con Optoacoplador / Pre-Driver (LR7843, AOD4184 o FR120N)** o un **Módulo Relé 5V de 1 canal con transistor excitador**.
      - Estos módulos reciben la señal lógica de 3.3V del GPIO 18 y conmutan la compuerta del transistor de potencia usando los 5.0V de la fuente principal, garantizando saturación completa de fábrica.
-   - **Opción Secundaria (Circuito Discreto en Protoboard):** Emplear un pre-driver de bajo costo con un transistor NPN de señal (2N2222, 2N3904 o BC547) para elevar la tensión de compuerta del IRLZ44N de 3.3V a 5.0V.
+   - **Opción Secundaria (Circuito Discreto No Inversor en Protoboard):** Emplear un driver no inversor de dos transistores (Q1 NPN 2N2222A + Q2 PNP 2N3906) para elevar la tensión de compuerta del IRLZ44N de 3.3V a +4.85V. **Prohibido emplear un único NPN en emisor común con pull-up**, ya que invertiría la lógica y activaría la bomba durante el arranque o reset del ESP32.
    - **Opción Alternativa (Accionamiento Directo de IRLZ44N condicionado a Banco):** Si se conecta directamente al GPIO 18, debe someterse al **Protocolo Obligatorio de Aceptación Eléctrica** (medición de $V_{GS} \ge 3.1\,\text{V}$, $V_{DS} \le 0.05\,\text{V}$ y temperatura $< 40^\circ\text{C}$ tras 30s de bombeo).
 
 ## Consecuencias y Reglas de Protección

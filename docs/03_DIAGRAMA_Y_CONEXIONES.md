@@ -109,34 +109,71 @@ Este documento proporciona los esquemas detallados de cableado pin a pin para la
 
 ## 4. Análisis de Decisiones Eléctricas Críticas
 
-### 4.1 Comportamiento del MOSFET a 3.3V (ESP32) vs 5V (Nano) y Modelos Específicos de Driver
+### 4.1 Comportamiento del MOSFET a 3.3V (ESP32) vs 5V (Nano) y Diseño de Etapa de Potencia
 
 - **Arduino Nano V3 (Accionamiento Directo Garantizado a 5.0V):**
-  - El pin `D3` entrega $V_{OH} \ge 4.2\,\text{V}$ (típico $4.8\,\text{V}-4.9\,\text{V}$). A este voltaje, el **IRLZ44N** (Vishay Siliconix / Infineon) tiene su resistencia de conducción $R_{DS(on)} \le 0.035\,\Omega$ **100% garantizada por la tabla de especificaciones eléctricas de la hoja de datos**. Disipa menos de $5\,\text{mW}$ y opera totalmente saturado a temperatura ambiente.
-- **ESP32 DevKit V1 (Accionamiento a 3.3V):**
+  - El pin `D3` entrega $V_{OH} \ge 4.2\,\text{V}$ (típico $4.8\,\text{V}-4.9\,\text{V}$). A este voltaje, el **IRLZ44N** (Vishay Siliconix / Infineon) tiene su resistencia de conducción $R_{DS(on)} \le 0.035\,\Omega$ **100% garantizada por la tabla de especificaciones eléctricas de la hoja de datos**. Disipa menos de $5\,\text{mW}$ y opera totalmente saturado a temperatura ambiente con lógica directa activa en alto (`HIGH = ON`, `LOW = OFF`).
+- **ESP32 DevKit V1 (Accionamiento a 3.3V) y Desafío de Nivel Lógico:**
   - **Limitación del IRLZ44N a 3.3V:** No posee especificación garantizada de $R_{DS(on)}$ para tensiones de compuerta $\le 3.3\,\text{V}$ (solo especifica hasta $4.0\,\text{V}$ en tabla). Aunque las curvas típicas de laboratorio a $25^\circ\text{C}$ muestran conducción suficiente para cargas de $300\,\text{mA}$, una unidad con tolerancia desfavorable ($V_{GS(th)} \to 2.0\,\text{V}$) reduce el sobrevoltaje efectivo a $\approx 1.1\,\text{V}$.
   - **FQP30N06L:** **DESCARTADO FORMALMENTE** para el ESP32. Su $V_{GS(th)}$ alcanza hasta $2.5\,\text{V}$, dejando un margen de sobretensión inaceptable de apenas $0.8\,\text{V}$ a 3.3V.
 
-#### Especificación Exacta de las Etapas de Potencia para ESP32:
+---
 
-Para no depender de "cajas negras" comerciales no identificadas, se definen tres alternativas verificables antes de la compra:
+#### ⚠️ ANÁLISIS CRÍTICO DE POLARIDAD Y REGLA DE ARRANQUE SEGURO
 
-1. **Opción Comercial A: Módulo MOSFET Dual AOD4184A (Modelo HW-517 / XY-MOS)**
-   - **Identificación:** Módulo comercial de doble MOSFET en paralelo (AOD4184 de Alpha & Omega).
-   - **Tensión de Disparo de Entrada:** Rango nominal $3.3\,\text{V} - 20\,\text{V}$ en bornera `TRIG / PWM`.
-   - **Capacidad de Corriente:** Hasta $15\,\text{A}$ continuo a temperatura ambiente. Con la microbomba ($350\,\text{mA}$ máx), cada transistor conduce únicamente $175\,\text{mA}$, disipando $< 1\,\text{mW}$ incluso ante saturación parcial.
-   - **Conexiones:** `TRIG` a `GPIO 18` del ESP32, `GND` de entrada a GND del ESP32. Borneras `VIN+` a +5V fuente, `VIN-` a GND fuente; `OUT+` a positivo de bomba, `OUT-` a retorno de bomba.
-2. **Opción Comercial B: Módulo Relé 5V 1 Canal con Optoacoplador (Songle SRD-05VDC-SL-C con jumper selector)**
-   - **Identificación:** Placa azul de relé 5V con optoacoplador (EL817 o compatible) y jumper de selección High/Low Level Trigger.
-   - **Configuración de Disparo a 3.3V:** Jumper en **Low Level Trigger** (el pin del microcontrolador absorbe corriente del cátodo del optoacoplador, garantizando conmutación completa con 3.3V).
-   - **Aislamiento Galvánico:** 100% aislado entre la bobina del relé/motor y el silicio del ESP32.
-   - **Conexiones:** `VCC` a +5V fuente, `GND` a GND común, `IN` a `GPIO 18`. Contactos: `COM` a +5V fuente, `NO` (Normalmente Abierto) al positivo de la microbomba.
-3. **Opción Discreta Determinista C (Recomendada en Taller): Pre-Driver Bipolar NPN (2N2222A) + IRLZ44N**
-   - **Componentes:** 1x Transistor NPN 2N2222A, 1x Resistencia base $R_B = 2.2\,\text{k}\Omega$, 1x Resistencia colector $R_C = 1\,\text{k}\Omega$ a +5V, 1x MOSFET IRLZ44N.
-   - **Principio:** El `GPIO 18` (3.3V) excita la base del 2N2222A. El colector conmuta la compuerta del IRLZ44N entre $0.1\,\text{V}$ y **+5.0V plenos**, logrando $R_{DS(on)} \le 0.035\,\Omega$ garantizada por Vishay sin importar la dispersión del transistor.
+> [!CAUTION] ¡Peligro de Inversión Lógica y Bombeo Espurio en Reset!
+> El firmware de Smart FloraCare opera con **Lógica Activa en Alto**:
+> `digitalWrite(PIN_DRIVER_BOMBA, pumpShouldRun ? HIGH : LOW);`
+> Durante el encendido, reinicio o cuelgue del microcontrolador, los pines GPIO se configuran como entradas en alta impedancia (High-Z) o se fuerzan a `LOW` por inicialización.
+> **Cualquier etapa de potencia donde un nivel `LOW` o flotante active la bomba es INACEPTABLE**, pues provocaría una inundación inmediata al enchufar el circuito.
 
-> [!NOTE] Criterio para Selección en Compra
-> Cualquiera de las 3 opciones anteriores resuelve de forma garantizada el disparo desde los 3.3V del ESP32. La Opción Comercial A (Módulo HW-517) o B (Módulo Relé SRD-05VDC) son ideales si se busca montaje directo en bornera; la Opción C es ideal si se desea montar todo en protoboard con componentes estándar de bajo costo.
+##### 1. Por qué un Pre-Driver NPN Simple (Emisor Común) está PROHIBIDO:
+Si se conecta `GPIO 18` a la base de un NPN con el colector a la compuerta del MOSFET y una resistencia pull-up a +5V:
+- Cuando `GPIO 18 = LOW` (o el ESP32 está en reset), el NPN está apagado $\to$ la resistencia pull-up lleva la compuerta a **+5.0V**, **ENCENDIENDO LA BOMBA INMEDIATAMENTE AL CONECTAR LA ALIMENTACIÓN**.
+- Cuando `GPIO 18 = HIGH`, el NPN conduce y tira la compuerta a 0V, apagando la bomba.
+- **Conclusión:** Esta topología invierte la lógica y viola el principio de diseño a prueba de fallos (*fail-safe*). **NO debe montarse.**
+
+##### 2. Solución Discreta Oficial: Driver No Inversor de 2 Etapas (NPN + PNP)
+Para lograr traslación de nivel de 3.3V a 5.0V con lógica no inversora y apagado garantizado en el arranque:
+
+```
+                  +5V Fuente Externa (Riel de Potencia)
+                     |                   |
+                     |                 [R_pu: 10 kΩ]
+                     |                   |
+                     |         +---------+--------- Emisor Q2 (PNP: 2N3906 / 2N2907)
+                     |         |                   |
+                     |       [R2: 2.2 kΩ]         Base Q2
+                     |         |                   |
+                     |         +-- Colector Q1     Colector Q2
+                     |                (NPN)        |
+                     |                             +-----> Gate MOSFET (IRLZ44N)
+                     |                                       |
+GPIO 18 ---[R1: 2.2 kΩ]--- Base Q1                         [R_pd2: 10 kΩ]
+               |              |                              |
+             [R_pd1: 10 kΩ]  Emisor Q1                     GND
+               |              |
+              GND            GND
+```
+
+**Tabla de Estados del Driver No Inversor NPN+PNP:**
+
+| Estado de GPIO 18 | Transistor Q1 (NPN) | Transistor Q2 (PNP) | Tensión en Gate IRLZ44N | Estado de la Bomba | Evaluación de Seguridad |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| **Arranque / Reset / High-Z** | Corte ($I_B = 0$) | Corte ($V_{EB} = 0$) | $0.00\,\text{V}$ (vía $R_{pd2}$) | **APAGADA** | **Fail-Safe Garantizado** |
+| **Reposo Normal (`LOW = 0V`)** | Corte | Corte | $0.00\,\text{V}$ | **APAGADA** | Seguro |
+| **Riego Activo (`HIGH = 3.3V`)** | Saturado ($I_B \approx 1.2\,\text{mA}$) | Saturado ($I_B \approx 1.9\,\text{mA}$) | **$\approx 4.85\,\text{V}$** | **ENCENDIDA** | **Saturación Plena ($R_{DS(on)} \le 0.035\,\Omega$)** |
+| **Fallo / Cable Desconectado** | Corte (vía $R_{pd1}$) | Corte | $0.00\,\text{V}$ | **APAGADA** | Seguro ante desconexión |
+
+##### 3. Opción de Circuito Integrado: Buffer TTL CMOS 74AHCT125 / 74HCT14
+En lugar de transistores discretos, puede emplearse una compuerta buffer no inversora compatible TTL alimentada a 5.0V (como el **74AHCT125** con $\overline{\text{OE}}$ a GND, o dos compuertas inversoras en cascada de un **74HCT14**):
+- Tensión de entrada alta admisible: $V_{IH} \ge 2.0\,\text{V}$ (reconoce limpiamente los 3.3V del ESP32).
+- Salida CMOS rail-to-rail a 5.0V directos hacia la compuerta del IRLZ44N.
+- Con pull-down de 10 kΩ en la entrada, la compuerta permanece rígidamente en 0.0V durante el boot.
+
+##### 4. Criterio de Selección para Módulos Comerciales:
+- **Módulo Relé 5V (SRD-05VDC-SL-C):** Si se utiliza un módulo relé, el jumper de configuración debe situarse obligatoriamente en **HIGH Level Trigger**, y los cables del motor deben conectarse entre `COM` (Común) y `NO` (Normalmente Abierto). **Bajo ninguna circunstancia configurar en Low Level Trigger**, ya que encendería la bomba durante el reset del ESP32. Si el módulo relé no conmuta con 3.3V en High Level Trigger debido a la caída de tensión del LED del optoacoplador, debe descartarse el módulo relé en favor del driver discreto NPN+PNP.
+- **Módulo MOSFET HW-517 / XY-MOS (Dual AOD4184A):** Este módulo conecta la señal de entrada directamente a las compuertas de dos MOSFETs en paralelo con resistencia pull-down a GND (activo en alto). Aunque comercialmente se especifica desde 3.3V, debido a la dispersión de $V_{GS(th)}$ entre lotes, el reparto de corriente no es perfectamente simétrico. Por tanto, antes de validar su uso definitivo en el montaje, debe verificarse en banco que a 3.3V la caída total $V_{DS} \le 50\,\text{mV}$ bajo el consumo real de la bomba.
 
 ### 4.2 Selección del Diodo Flyback: Recirculación Inductiva
 - **1N4148:** Es un diodo de señal pequeña de conmutación rápida. Su corriente continua máxima es de solo $150\,\text{mA}-200\,\text{mA}$. La microbomba genera corrientes de arranque y picos de desconexión inductiva de más de $500\,\text{mA}-800\,\text{mA}$. **El 1N4148 puede destruirse en cortocircuito y dañar la etapa de conmutación.**

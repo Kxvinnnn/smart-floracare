@@ -35,7 +35,7 @@ La siguiente tabla presenta el listado completo para el montaje dual (o los íte
 | **MCU-02** | **ESP32 DevKit V1** | ESP-WROOM-32 (30 pines), Dual-Core, 3.3V, Wi-Fi 802.11 b/g/n | 1 | Solo ESP32 | Electronilab / Dinastía | \$28,000 | \$28,000 |
 | **DISP-01** | **Pantalla OLED 0.96"** | 128×64 monocromo, controlador SSD1306, bus I2C (0x3C) | 2 | 1 c/u | Electronilab / RoosTech | \$13,500 | \$27,000 |
 | **SENS-01** | **Sensor de Suelo Capacitivo v1.2** | Salida analógica proporcional. **Nano a 5V; ESP32 obligatoriamente a 3.3V** | 2 | 1 c/u | Mecabot / RoosTech | \$6,500 | \$13,000 |
-| **PWR-01** | **Driver de Bomba (Etapa Oficial ESP32)** | **Módulo HW-517 (Dual AOD4184A) o Módulo Relé 5V SRD-05VDC (Low Trigger)** | 1 | Solo ESP32 | Mecabot / Electronilab | \$4,500 | \$4,500 |
+| **PWR-01** | **Driver de Bomba (Etapa Oficial ESP32)** | **Driver No Inversor NPN+PNP (2N2222A + 2N3906 + IRLZ44N) o Módulo HW-517** | 1 | Solo ESP32 | Electrónica local / Mecabot | \$4,500 | \$4,500 |
 | **PWR-02** | **Driver de Bomba (Etapa Oficial Nano)** | **MOSFET IRLZ44N Logic-Level** (Vishay/Infineon, $R_{DS(on)} \le 0.035\,\Omega$ a 5V) | 1 | Solo Nano | Almacén de electrónica | \$3,000 | \$3,000 |
 | **DIO-01** | **Diodo Flyback de Potencia** | **1N5819 Schottky** ($40\,\text{V}, 1\,\text{A}, V_F \approx 0.35\,\text{V}$, $<10\,\text{ns}$). Alternativa: 1N4007 | 2 | 1 c/u | Almacén de electrónica | \$600 | \$1,200 |
 | **SW-01** | **Sensor de Flotador de Nivel** | Boya magnética con interruptor reed hermético (CS-CO058 / Horizontal) | 2 | 1 c/u | [Mecabot](https://www.mecabot.com/products/sensor-de-nivel-de-agua-horizontal-cs-co058) / Electronilab | \$12,900 | \$25,800 |
@@ -84,8 +84,10 @@ Estos componentes conforman la planta física de riego e impulsión, compartida 
 
 1. **Selección del Driver de Bomba para ESP32:**
    - **FQP30N06L:** Ha sido **rechazado oficialmente** debido a su umbral de compuerta ($V_{GS(th)} = 1.0\,\text{V}-2.5\,\text{V}$), que en condiciones límite no garantiza conducción a 3.3V.
-   - **IRLZ44N:** No posee especificación garantizada de $R_{DS(on)}$ a tensiones de compuerta $\le 3.3\,\text{V}$ en la tabla oficial de Vishay/Infineon. Se relega a prueba experimental de banco.
-   - **Opción Oficial y Recomendada:** **Módulo MOSFET LR7843 / AOD4184 con optoacoplador PC817** o **Módulo Relé 5V (SRD-05VDC-SL-C)**. La señal lógica de 3.3V excita el LED del optoacoplador, y este conmuta la compuerta o bobina utilizando los 5.0V de la fuente principal, garantizando saturación total y disipación térmica nula.
+   - **IRLZ44N Directo:** No posee especificación garantizada de $R_{DS(on)}$ para $V_{GS} \le 3.3\,\text{V}$ en la tabla oficial de Vishay/Infineon.
+   - **Pre-Driver NPN Simple Inversor:** **PROHIBIDO** porque encendería la bomba en el arranque cuando el GPIO está en LOW o High-Z.
+   - **Opción Oficial y Recomendada en Taller:** **Driver No Inversor Bipolar de 2 Etapas (NPN 2N2222A + PNP 2N3906)** excitando la compuerta del IRLZ44N a +4.85V plenos, o **Buffer Lógico TTL 74AHCT125 / 74HCT14**, garantizando lógica activa en alto (`HIGH = ON`, `LOW = OFF`) y apagado estricto durante el arranque y reinicio.
+   - **Alternativa Comercial:** Módulo HW-517 (Dual AOD4184A) con verificación previa en banco de $V_{DS} \le 50\,\text{mV}$ bajo carga real. Si se opta por un Módulo Relé 5V, este debe configurarse obligatoriamente con disparo en alto (**High Level Trigger**) y comprobarse que conmute de forma fiable con 3.3V.
 2. **Alimentación del Sensor Capacitivo de Suelo:**
    - En **Arduino Nano**: Alimentado a 5.0V. Su salida entrega entre ~2.4V (agua) y ~4.8V (aire), operando dentro del rango del ADC de 10 bits.
    - En **ESP32**: **Obligatoriamente alimentado a 3.3V**. Conectarlo a 5V generaría tensiones superiores a los 3.3V tolerados por el `GPIO 34`, dañando de forma permanente el conversor ADC del ESP32.

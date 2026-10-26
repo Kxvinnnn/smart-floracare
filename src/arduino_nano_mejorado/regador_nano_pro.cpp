@@ -42,9 +42,9 @@ static constexpr CalibrationProfile NANO_CALIBRATION = {
 
 // --- CONFIGURACIÓN DEL CONTROLADOR DE RIEGO UNIFICADO ---
 static constexpr ControllerConfig NANO_IRRIGATION_CFG = {
-    25000, // maxAutoDurationMs: 25 segundos máx
+    20000, // maxAutoDurationMs: 20 segundos máx (Unificado con ESP32)
     3000,  // manualBurstDurationMs: 3 segundos
-    25000, // maxSafetyWatchdogMs: 25 segundos absoluto
+    25000, // maxSafetyWatchdogMs: 25 segundos absoluto (Perro guardián de seguridad independiente)
     5000,  // cooldownPeriodMs: 5 segundos de enfriamiento entre riegos
     20,    // autoStartMoisturePct: Iniciar si humedad <= 20%
     70     // autoStopMoisturePct: Detener si humedad >= 70%
