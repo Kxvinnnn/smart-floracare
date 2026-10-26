@@ -76,7 +76,7 @@ La mayoría de los proyectos residenciales de riego utilizan transistores bipola
 │   └── esp32_mejorado_wifi/
 │       └── regador_esp32.cpp                # Firmware IoT con Web Dashboard y WiFi (ESP32)
 │
-└── tests/                                   # Suite de pruebas automatizadas (37 tests reproducibles)
+└── tests/                                   # Suite de pruebas automatizadas (75 tests reproducibles)
     ├── test_irrigation_suite.py             # 30 pruebas unitarias de dominio, FSM e interlocks
     ├── test_firmware_security.py            # 12 pruebas estáticas de seguridad y robustez
     └── test_http_auth_security.py           # 33 pruebas de autenticación HTTP, CSRF, transporte y controlador

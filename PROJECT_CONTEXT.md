@@ -138,15 +138,19 @@ sequenceDiagram
 
 ---
 
-## 📊 5. Estado Actual de Compilación y Memoria
+## 📊 5. Estado Actual de Git, CI y Compilación
+- **Control de Versiones:** Rama `main`, commit publicado `707127c` (`fix(security): harden HTTP auth, origin validation, and rate limiting`).
+- **Integración Continua (GitHub Actions):**
+  - Diagnóstico de ejecución `40285441265` (conclusión `failure` en 0s, 0 jobs): Causa raíz demostrada como error de sintaxis de mapeo YAML en `.github/workflows/ci.yml` (cadena sin entrecomillar que contenía dos puntos seguidos de espacio `: ` en el nombre del paso).
+  - Remediación verificada: Cadena entrecomillada `"Run Full Automated Test Suite (75 Tests: Domain, Security, and HTTP Auth)"`, validada sintácticamente mediante `yaml.safe_load()`.
 - **Arduino Nano V3 (`env:nanoatmega328`):**
-  - Compilación PlatformIO: `SUCCESS` en 2.59 s.
-  - Memoria Flash (Programa): `17,554 bytes` utilizados de `30,720 bytes` (**57.1%**).
-  - Memoria SRAM (Dinámica): `614 bytes` utilizados de `2,048 bytes` (**30.0%**).
+  - Compilación PlatformIO: `SUCCESS` en 1.86 s (AVR-GCC 7.3.0).
+  - Memoria Flash (Programa): `17,554 bytes` utilizados de `30,720 bytes` (**57.1%**). Margen libre: **42.9%**.
+  - Memoria SRAM (Dinámica): `614 bytes` utilizados de `2,048 bytes` (**30.0%**). Margen libre: **70.0%** (1,434 B libres).
 - **ESP32 DevKit V1 (`env:esp32dev`):**
-  - Compilación PlatformIO: `SUCCESS` en 23.29 s.
-  - Memoria Flash (Programa): `1,081,895 bytes` utilizados de `1,310,720 bytes` (**82.5%**).
-  - Memoria SRAM (Dinámica): `49,412 bytes` utilizados de `327,680 bytes` (**15.1%**).
+  - Compilación PlatformIO: `SUCCESS` en 18.92 s (Xtensa-GCC 14.2.0).
+  - Memoria Flash (Programa): `1,082,115 bytes` utilizados de `1,310,720 bytes` (**82.6%**). Margen libre: **17.4%** (228,605 B libres).
+  - Memoria SRAM (Dinámica): `49,412 bytes` utilizados de `327,680 bytes` (**15.1%**). Margen libre: **84.9%** (278,268 B libres).
   - Secretos: Cero credenciales hardcodeadas; gestión en `Credentials.h` ignorado por Git.
 
 ---

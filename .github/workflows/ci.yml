@@ -43,7 +43,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Full Automated Test Suite (75+ Tests: Domain, Security, and HTTP Auth)
+      - name: "Run Full Automated Test Suite (75 Tests: Domain, Security, and HTTP Auth)"
         run: |
           python -m unittest discover tests
 
