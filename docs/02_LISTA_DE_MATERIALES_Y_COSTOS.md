@@ -1,81 +1,95 @@
 # 🛒 02. Lista de Materiales (BOM) y Desglose Financiero Auditado
 
-Esta lista detalla los componentes requeridos para la construcción del sistema **Smart FloraCare** en sus dos variantes (**Arduino Nano V3** y **ESP32 DevKit V1**), con especificaciones eléctricas verificadas contra hojas de datos oficiales y cotizaciones del mercado electrónico colombiano (COP / USD).
+Esta lista detalla los componentes requeridos para la construcción del sistema **Smart FloraCare** en sus dos variantes (**Arduino Nano V3** y **ESP32 DevKit V1**), con especificaciones eléctricas verificadas contra hojas de datos oficiales y cotizaciones del mercado electrónico colombiano (COP / USD a TRM de referencia $1\,\text{USD} \approx 4,000\,\text{COP}$).
 
 ---
 
 ## 📊 1. Resumen de Costos y Opciones de Construcción
 
-Como ambas versiones se probarán sobre la **misma planta de interior y el mismo depósito**, el sistema hidráulico se comparte de forma alternada:
+El proyecto contempla el riego de una **única maceta de interior** desde un **mismo depósito compartido**. Por lo tanto, los componentes de control pueden evaluarse como proyectos independientes (Opción A u Opción B) o como una suite de desarrollo dual donde ambas placas quedan armadas y comparten la infraestructura hidráulica:
 
-| Opción de Construcción | Electrónica y Control | Hidráulica Compartida | Gabinete y Consumibles | Inversión Total Estimada (COP) | Equivalente USD (1 USD $\approx$ 4,000 COP) |
+| Opción de Construcción | Grupo A: Electrónica de Control | Grupo B: Hidráulica y Potencia | Grupo C: Gabinete y Consumibles | Inversión Total Auditada (COP) | Equivalente USD ($1\,\text{USD} \approx 4,000\,\text{COP}$) |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **Solo Versión Arduino Nano V3** | \$68,000 COP | \$25,000 COP | \$12,000 COP | **\$105,000 COP** | **~$26.25 USD** |
-| **Solo Versión ESP32 DevKit V1** | \$78,000 COP | \$25,000 COP | \$12,000 COP | **\$115,000 COP** | **~$28.75 USD** |
-| **Ambas Versiones (Duplicadas + Compartidas)** | \$146,000 COP | \$25,000 COP | \$24,000 COP | **\$195,000 - \$210,000 COP** | **~$48.75 - \$52.50 USD** |
-| **Costo Incremental 2ª Versión** | + \$78,000 COP | \$0 COP (Reutilizada) | + \$12,000 COP | **+ \$90,000 COP** | **~$22.50 USD** |
+| **Opción A: Solo Arduino Nano V3** | \$71,100 COP | \$31,500 COP | \$15,000 COP | **\$117,600 COP** | **~$29.40 USD** |
+| **Opción B: Solo ESP32 DevKit V1** | \$82,600 COP | \$31,500 COP | \$15,000 COP | **\$129,100 COP** | **~$32.28 USD** |
+| **Opción Combinada (Ambos Controladores)** | \$153,700 COP | \$31,500 COP | \$24,000 COP | **\$209,200 COP** | **~$52.30 USD** |
+
+> [!NOTE] Reconciliación Aritmética de Costos
+> - Si se construye solo la **Opción A (Nano)**: $\$71,100 + \$31,500 + \$15,000 = \$117,600\,\text{COP}$.
+> - Si se construye solo la **Opción B (ESP32)**: $\$82,600 + \$31,500 + \$15,000 = \$129,100\,\text{COP}$.
+> - Si se compran componentes para montar **ambas placas (Opción Combinada)**:
+>   - La electrónica se suma de forma completa: $\$71,100 + \$82,600 = \$153,700\,\text{COP}$.
+>   - La hidráulica y fuente ($\$31,500\,\text{COP}$) **no se duplica**, ya que se riega una sola planta con el mismo depósito y bomba.
+>   - En consumibles y gabinetes, se añade únicamente una segunda caja plástica ($\$9,000\,\text{COP}$), reutilizando el mismo frasco de barniz dieléctrico y el tubo termorretráctil: $\$15,000 + \$9,000 = \$24,000\,\text{COP}$.
+>   - Total Combinado: $\$153,700 + \$31,500 + \$24,000 = \mathbf{\$209,200\,\text{COP}}$ (Ahorro por sinergia: $\$37,500\,\text{COP}$).
 
 ---
 
-## 🔌 2. Grupo A: Electrónica de Control (Desglose por Variante)
+## 🔌 2. Grupo A: Electrónica de Control (Desglose Itemizado por Componente)
 
-### A.1 Componentes Exclusivos / Duplicados
+La siguiente tabla presenta el listado completo para el montaje dual (o los ítems específicos para cada placa individual):
 
-| Identificador | Componente | Especificación Técnica Verificada | Cant. | Compatibilidad | Proveedor Local Sugerido | Precio Unit. (COP) | Subtotal (COP) |
+| ID | Componente | Especificación Técnica Crítica | Cant. Dual | Asignación | Proveedor Sugerido | Precio Unit. (COP) | Subtotal Dual (COP) |
 | :--- | :--- | :--- | :---: | :---: | :--- | :---: | :---: |
-| **MCU-01** | **Arduino Nano V3** | ATmega328P, 16 MHz, 5V, conector Mini-USB / USB-C | 1 | Variante A | Mecabot / Electronilab | \$18,000 | \$18,000 |
-| **MCU-02** | **ESP32 DevKit V1** | ESP-WROOM-32 (30 pines), Dual-Core, 3.3V, Wi-Fi / BLE | 1 | Variante B | Electronilab / Dinastía | \$28,000 | \$28,000 |
-| **DISP-01** | **Pantalla OLED 0.96"** | 128×64 monocromo, controlador SSD1306, interfaz I2C (0x3C) | 2 | Ambas (3.3V / 5V) | Electronilab / RoosTech | \$13,500 | \$27,000 |
-| **SENS-01** | **Sensor de Suelo Capacitivo v1.2** | Salida analógica proporcional. **Nano a 5V; ESP32 obligatoriamente a 3.3V** | 2 | Ambas | Mecabot / RoosTech | \$6,500 | \$13,000 |
-| **PWR-01** | **Driver de Bomba (Opción 1: Módulo con Driver/Opto)** | **Módulo MOSFET LR7843 / AOD4184 o Módulo Relé 5V** con pre-driver de disparo | 1 | **Recomendado ESP32** | Mecabot / Electronilab | \$4,500 | \$4,500 |
-| **PWR-02** | **Driver de Bomba (Opción 2: Transistor Discreto)** | **MOSFET IRLZ44N Logic-Level** (Vishay, $V_{GS(th)} \le 2.0\text{V}$, $R_{DS(on)} \le 0.035\,\Omega$ a 5V) | 2 | **Nativo Nano** / ESP32 condicionado | Almacén de electrónica | \$3,000 | \$6,000 |
-| **DIO-01** | **Diodo Flyback de Potencia** | **1N5819 Schottky** ($40\,\text{V}, 1\,\text{A}, V_F \approx 0.35\,\text{V}$) o 1N4007. *(¡No 1N4148!)* | 2 | Ambas | Almacén de electrónica | \$600 | \$1,200 |
-| **SW-01** | **Sensor de Flotador de Nivel** | Tipo Boya magnética con contacto seco hermético (CS-CO058) | 2 | Ambas (`INPUT_PULLUP`) | [Mecabot](https://www.mecabot.com/products/sensor-de-nivel-de-agua-horizontal-cs-co058) / Electronilab | \$12,900 | \$25,800 |
-| **BUZ-01** | **Zumbador Pasivo (Buzzer)** | Piezoeléctrico pasivo 5V/3.3V (TMB12A05). Tono suave 850 Hz vía `tone()` | 2 | Ambas | Mecabot / RoosTech | \$1,200 | \$2,400 |
-| **BTN-01** | **Pulsador Táctil (Push Button)** | Tact switch 6×6 mm de 4 pines para protoboard | 2 | Ambas (`INPUT_PULLUP`) | Almacén local | \$400 | \$800 |
-| **RES-01** | **Kit de Resistencias** | 1 kΩ (x2), 10 kΩ (x2), 220 Ω (x2), 1/4W 5% | 1 kit | Ambas | Almacén local | \$2,000 | \$2,000 |
-| **BRD-01** | **Protoboard 400 Puntos** | Mini protoboard para ensamble y pruebas de banco | 2 | Ambas | Mecabot / RoosTech | \$6,500 | \$13,000 |
-| **CAB-01** | **Cables Dupont** | Kit surtido de 40 jumpers (M-M y M-H de 20 cm) | 1 kit | Ambas | Electronilab / Mecabot | \$7,000 | \$7,000 |
-| **CAB-02** | **Cables USB** | 1x Mini-USB (Nano) y 1x Micro-USB (ESP32) | 2 | Exclusivo por placa | Hogar / Informática | \$4,000 | \$8,000 |
+| **MCU-01** | **Arduino Nano V3** | ATmega328P, 16 MHz, lógica 5.0V, conector Mini-USB / USB-C | 1 | Solo Nano | Mecabot / Electronilab | \$18,000 | \$18,000 |
+| **MCU-02** | **ESP32 DevKit V1** | ESP-WROOM-32 (30 pines), Dual-Core, 3.3V, Wi-Fi 802.11 b/g/n | 1 | Solo ESP32 | Electronilab / Dinastía | \$28,000 | \$28,000 |
+| **DISP-01** | **Pantalla OLED 0.96"** | 128×64 monocromo, controlador SSD1306, bus I2C (0x3C) | 2 | 1 c/u | Electronilab / RoosTech | \$13,500 | \$27,000 |
+| **SENS-01** | **Sensor de Suelo Capacitivo v1.2** | Salida analógica proporcional. **Nano a 5V; ESP32 obligatoriamente a 3.3V** | 2 | 1 c/u | Mecabot / RoosTech | \$6,500 | \$13,000 |
+| **PWR-01** | **Driver de Bomba (Etapa Oficial ESP32)** | **Módulo MOSFET LR7843 / AOD4184 con Optoacoplador** o Módulo Relé 5V | 1 | Solo ESP32 | Mecabot / Electronilab | \$4,500 | \$4,500 |
+| **PWR-02** | **Driver de Bomba (Etapa Oficial Nano)** | **MOSFET IRLZ44N Logic-Level** (Vishay/Infineon, $R_{DS(on)} \le 0.035\,\Omega$ a 5V) | 1 | Solo Nano | Almacén de electrónica | \$3,000 | \$3,000 |
+| **DIO-01** | **Diodo Flyback de Potencia** | **1N5819 Schottky** ($40\,\text{V}, 1\,\text{A}, V_F \approx 0.35\,\text{V}$, $<10\,\text{ns}$). Alternativa: 1N4007 | 2 | 1 c/u | Almacén de electrónica | \$600 | \$1,200 |
+| **SW-01** | **Sensor de Flotador de Nivel** | Boya magnética con interruptor reed hermético (CS-CO058 / Horizontal) | 2 | 1 c/u | [Mecabot](https://www.mecabot.com/products/sensor-de-nivel-de-agua-horizontal-cs-co058) / Electronilab | \$12,900 | \$25,800 |
+| **BUZ-01** | **Zumbador Pasivo (Buzzer)** | Transductor piezoeléctrico pasivo 3.3V/5V. Tono suave 850 Hz vía PWM | 2 | 1 c/u | Mecabot / RoosTech | \$1,200 | \$2,400 |
+| **BTN-01** | **Pulsador Táctil (Push Button)** | Tact switch 6×6 mm de 4 pines para inserción en protoboard | 2 | 1 c/u | Almacén local | \$400 | \$800 |
+| **RES-01** | **Kit de Resistencias de Carbón** | 1 kΩ (x2), 10 kΩ (x2), 220 Ω (x2), 1/4W 5% | 1 kit | Compartido | Almacén local | \$2,000 | \$2,000 |
+| **BRD-01** | **Protoboard 400 Puntos** | Matriz de conexión para prototipado rápido en banco de pruebas | 2 | 1 c/u | Mecabot / RoosTech | \$6,500 | \$13,000 |
+| **CAB-01** | **Cables Dupont** | Kit surtido de 40 jumpers (20 cm, M-M y M-H) | 1 kit | Compartido | Electronilab / Mecabot | \$7,000 | \$7,000 |
+| **CAB-02** | **Cable Mini-USB (Nano)** | Cable de datos y programación para Arduino Nano | 1 | Solo Nano | Informática / Hogar | \$4,000 | \$4,000 |
+| **CAB-03** | **Cable Micro-USB (ESP32)** | Cable de datos y programación para ESP32 | 1 | Solo ESP32 | Informática / Hogar | \$4,000 | \$4,000 |
+| **SUBTOTAL GRUPO A (COMBINADO)** | | | | | | | **\$153,700 COP** |
+
+*(Subtotal individual asignable: Nano = \$71,100 COP; ESP32 = \$82,600 COP).*
 
 ---
 
-## 💧 3. Grupo B: Hidráulica y Mecánica Compartida (1 Sola Planta)
+## 💧 3. Grupo B: Hidráulica y Alimentación Compartida (1 Sola Planta)
 
-Estos componentes se conectan al controlador activo de forma intercambiable:
+Estos componentes conforman la planta física de riego e impulsión, compartida entre ambos controladores:
 
-| Identificador | Componente | Especificación Técnica | Cant. | Proveedor Sugerido | Precio Est. (COP) |
+| ID | Componente | Especificación Técnica Verificada | Cant. | Proveedor Sugerido | Precio Est. (COP) |
 | :--- | :--- | :--- | :---: | :--- | :---: |
-| **PMP-01** | **Microbomba Sumergible DC** | Modelo JT-DC3W (3V - 5V DC), caudal 80-120 L/h, consumo 200-350 mA | 1 | Tiendas de robótica / Acuarios | \$8,500 |
-| **HOS-01** | **Manguera Flexible Transparente** | Silicona o vinilo grado alimenticio, diámetro interno 6 mm o 7 mm | 1 m | Ferreterías / Acuarios | \$3,000 |
-| **PWR-SRC** | **Fuente Regulada 5V (2A a 3A)** | Adaptador de pared 5V DC regulado con conector Jack DC o USB | 1 | Tiendas de electrónica / Hogar | \$16,000 |
-| **RES-TNK** | **Depósito de Agua Estable** | Frasco o contenedor plástico hermético con tapa (1.5 a 3 Litros) | 1 | Hogar / Bazar | \$0 - \$5,000 |
-| **PLT-01** | **Maceta y Planta de Interior** | Lirio de la paz (*Spathiphyllum*), Pothos o Helecho de tu abuela | 1 | Hogar / Ya disponible | \$0 |
-| **TRP-01** | **Bandeja Plástica Antiderrames** | Bandeja rectangular para banco de pruebas | 1 | Hogar / Ferretería | \$4,000 |
-| **SUBTOTAL GRUPO B** | | | | | **~\$31,500 - \$36,500 COP** |
+| **PMP-01** | **Microbomba Sumergible DC** | Modelo JT-DC3W (3.5V - 5V DC), caudal 80-120 L/h, consumo 200-350 mA | 1 | Robótica / Acuarios | \$8,500 |
+| **HOS-01** | **Manguera Flexible Transparente** | Grado alimenticio (silicona o PVC atóxico), diámetro interno 6 mm o 7 mm | 1 m | Ferreterías / Acuarios | \$3,000 |
+| **PWR-SRC** | **Fuente Regulada 5V DC (2A a 3A)** | Adaptador de pared 5V DC estabilizado con conector Jack DC o terminales | 1 | Electrónica / Hogar | \$16,000 |
+| **RES-TNK** | **Depósito de Agua Estable** | Contenedor plástico hermético reciclado con tapa (1.5 a 3 Litros) | 1 | Hogar / Bazar | \$0 |
+| **TRP-01** | **Bandeja Plástica Antiderrames** | Bandeja rectangular para protección del banco durante pruebas hidráulicas | 1 | Hogar / Ferretería | \$4,000 |
+| **SUBTOTAL GRUPO B** | | | | | **\$31,500 COP** |
 
 ---
 
 ## 🛠️ 4. Grupo C: Gabinetes, Protecciones y Consumibles de Taller
 
-| Identificador | Componente | Especificación Técnica | Cant. | Función | Precio Est. (COP) |
+| ID | Componente | Especificación Técnica | Cant. Dual | Función de Seguridad | Precio Est. (COP) |
 | :--- | :--- | :--- | :---: | :--- | :---: |
-| **ENC-01** | **Caja Estanca Plástica (Gabinete)** | Caja de conexiones PVC 100×100×50 mm (1 por controlador definitivo) | 2 | Alojamiento y protección contra salpicaduras | \$18,000 (\$9,000 c/u) |
-| **INS-01** | **Barniz Aislante / Esmalte** | Esmalte transparente de poliuretano | 1 | Impermeabilización de cabecera del sensor capacitivo | \$3,500 |
-| **SHR-01** | **Tubo Termorretráctil** | Variados (diámetro 15 mm para sensor y empalmes) | 1 m | Aislamiento dieléctrico y sujeción | \$2,500 |
-| **SUBTOTAL GRUPO C** | | | | | **~\$24,000 COP** |
+| **ENC-01** | **Caja Estanca PVC 100×100×50 mm** | Gabinete plástico hermético para alojamiento de placa definitiva | 2 | Protección IP54 contra salpicaduras | \$18,000 (\$9,000 c/u) |
+| **INS-01** | **Barniz Aislante / Esmalte de Uñas** | Barniz acrílico o poliuretano de alta rigidez dieléctrica | 1 frasco | Sellado de componentes y pistas superiores del sensor | \$3,500 |
+| **SHR-01** | **Tubo Termorretráctil Surtido** | Tramos de 10 mm y 15 mm para empalmes y protección del sensor | 1 m | Aislamiento dieléctrico y refuerzo mecánico | \$2,500 |
+| **SUBTOTAL GRUPO C (COMBINADO)** | | | | | **\$24,000 COP** |
+
+*(Subtotal individual para 1 sola variante: 1 caja + barniz + termorretráctil = \$15,000 COP).*
 
 ---
 
-## ⚠️ 5. Puntos Eléctricos y Bloqueos de Compra Resueltos
+## ⚠️ 5. Puntos Eléctricos Críticos y Criterios Definitivos de Selección
 
-1. **Alimentación del Sensor Capacitivo:**
-   - En Arduino Nano: Alimentado a 5.0V. Su salida entrega entre ~2.4V (agua) y ~4.8V (aire), aprovechando el rango completo del ADC de 10 bits.
-   - En ESP32: **Obligatoriamente alimentado a 3.3V**. Jamás alimentar a 5V en el ESP32, ya que la salida superaría los 3.3V tolerados por el `GPIO 34`, destruyendo el silicio del conversor analógico-digital.
-2. **Accionamiento del MOSFET de Potencia:**
-   - Para Arduino Nano: El **IRLZ44N** es óptimo y está 100% garantizado por hoja de datos a 5V ($R_{DS(on)} \le 0.035\,\Omega$).
-   - Para ESP32: Se recomienda adquirir un **Módulo MOSFET con Optoacoplador / Driver (LR7843 o AOD4184)** o intercalar un pequeño transistor NPN (2N2222 / 2N3904) para conmutar la compuerta a 5.0V. Si se utiliza el IRLZ44N directo a 3.3V, debe validarse en banco que $V_{GS} \ge 3.1\,\text{V}$ y que la caída $V_{DS} \le 0.05\,\text{V}$.
-3. **Diodo Flyback:**
-   - Debe adquirirse un diodo **1N5819 Schottky** ($1\text{A}, 40\text{V}$, $<10\text{ns}$) o en su defecto un **1N4007**. No aceptar 1N4148 por insuficiencia de corriente de avalancha inversa.
-4. **Alimentación General:**
-   - La bomba toma su corriente en paralelo directamente de la fuente de 5V (2A–3A), **NUNCA a través del pin 5V o 3V3 del microcontrolador**.
+1. **Selección del Driver de Bomba para ESP32:**
+   - **FQP30N06L:** Ha sido **rechazado oficialmente** debido a su umbral de compuerta ($V_{GS(th)} = 1.0\,\text{V}-2.5\,\text{V}$), que en condiciones límite no garantiza conducción a 3.3V.
+   - **IRLZ44N:** No posee especificación garantizada de $R_{DS(on)}$ a tensiones de compuerta $\le 3.3\,\text{V}$ en la tabla oficial de Vishay/Infineon. Se relega a prueba experimental de banco.
+   - **Opción Oficial y Recomendada:** **Módulo MOSFET LR7843 / AOD4184 con optoacoplador PC817** o **Módulo Relé 5V (SRD-05VDC-SL-C)**. La señal lógica de 3.3V excita el LED del optoacoplador, y este conmuta la compuerta o bobina utilizando los 5.0V de la fuente principal, garantizando saturación total y disipación térmica nula.
+2. **Alimentación del Sensor Capacitivo de Suelo:**
+   - En **Arduino Nano**: Alimentado a 5.0V. Su salida entrega entre ~2.4V (agua) y ~4.8V (aire), operando dentro del rango del ADC de 10 bits.
+   - En **ESP32**: **Obligatoriamente alimentado a 3.3V**. Conectarlo a 5V generaría tensiones superiores a los 3.3V tolerados por el `GPIO 34`, dañando de forma permanente el conversor ADC del ESP32.
+3. **Diodo Flyback de Conmutación:**
+   - Debe instalarse un **1N5819 Schottky** ($1\,\text{A}, 40\,\text{V}$, conmutación $<10\,\text{ns}$) o alternativamente un **1N4007** en antiparalelo directo con los terminales del motor. Proporciona una ruta de recirculación para la corriente inductiva transitoria; su eficacia contra reinicios y ruidos electromagnéticos debe confirmarse en el montaje real.
+4. **Distribución de Potencia:**
+   - La bomba toma su corriente en paralelo directamente de la fuente externa de 5V (2A–3A). **Bajo ninguna circunstancia debe alimentarse el motor desde los pines 5V o 3V3 de la placa de desarrollo**.

@@ -46,7 +46,8 @@ Este documento proporciona los esquemas detallados de cableado pin a pin para la
 | | `GND` | `GND` | Tierra común |
 | | `SCL` | `GPIO 22` | Reloj I2C por defecto en ESP32 |
 | | `SDA` | `GPIO 21` | Datos I2C por defecto en ESP32 |
-| **Driver de Bomba (MOSFET)** | `Gate` | `GPIO 18` (vía R 1 kΩ) | Señal de disparo 3.3V (apta para IRLZ44N/FQP30N06L). Pull-down 10 kΩ a GND |
+| **Driver de Bomba (Opción Oficial ESP32)** | `IN / Trigger` | `GPIO 18` (vía R 1 kΩ) | Módulo MOSFET LR7843 / AOD4184 con optoacoplador o Módulo Relé 5V (disparo garantizado a 3.3V) |
+| **Driver de Bomba (Alternativa Experimental)** | `Gate` | `GPIO 18` (vía R 1 kΩ) | IRLZ44N discreto (sujeto a validación en banco de $V_{GS} \ge 3.1\,\text{V}$ y $V_{DS} \le 0.05\,\text{V}$). Pull-down 10 kΩ |
 | | `Source` | `GND` | Tierra común |
 | | `Drain` | Bomba (-) | Retorno conmutado a tierra |
 | **Bomba Sumergible 5V** | Positivo (+) | `+5V` (Fuente externa) | Conexión directa a fuente 5V 2A/3A |
@@ -108,17 +109,20 @@ Este documento proporciona los esquemas detallados de cableado pin a pin para la
 
 ## 4. Análisis de Decisiones Eléctricas Críticas
 
-### 4.1 Comportamiento del MOSFET a 3.3V (ESP32) vs 5V (Nano)
-- **IRLZ44N:** Es un MOSFET de canal N diseñado específicamente con compuerta de nivel lógico (*Logic-Level*). Su tensión de umbral es $V_{GS(th)} = 1.0\,\text{V} - 2.0\,\text{V}$.
-  - A $V_{GS} = 3.3\,\text{V}$ (ESP32): La resistencia de conducción es $R_{DS(on)} \approx 0.035\,\Omega$. Para la microbomba que demanda entre $0.2\,\text{A}$ y $0.5\,\text{A}$, la caída de tensión en el MOSFET es menor a $0.018\,\text{V}$ y disipa $< 0.01\,\text{W}$. Funciona 100% frío y saturado.
-  - A $V_{GS} = 5.0\,\text{V}$ (Nano): $R_{DS(on)} \le 0.028\,\Omega$. Totalmente saturado.
-- **FQP30N06L:** Alternativa excelente equivalente con $V_{GS(th)} = 1.0\,\text{V} - 2.5\,\text{V}$, capaz de manejar hasta $15\,\text{A}$ a $3.3\,\text{V}$.
-- *Conclusión:* Ambos modelos son 100% seguros y aptos para ambas placas.
+### 4.1 Comportamiento del MOSFET a 3.3V (ESP32) vs 5V (Nano) y Criterio de Selección
 
-### 4.2 Selección del Diodo Flyback: ¿Por qué NO usar 1N4148?
-- **1N4148:** Es un diodo de señal pequeña de conmutación rápida para señales de alta frecuencia. Su corriente directa continua máxima es de solo $150\,\text{mA}-200\,\text{mA}$. La microbomba puede generar picos de corriente transitoria inductiva de más de $500\,\text{mA}$ al apagarse. **El 1N4148 puede quemarse en cortocircuito y destruir la compuerta del MOSFET.**
-- **1N5819 (Diodo Schottky - Elección Principal):** Soporta $1.0\,\text{A}$ continuo y $25\,\text{A}$ de sobretensión. Tiene un tiempo de recuperación ultra rápido ($< 10\,\text{ns}$) y una caída directa mínima ($V_F \approx 0.35\,\text{V}$). Es la opción perfecta para motores de 5V.
-- **1N4007 (Diodo Rectificador - Alternativa Aceptable):** Soporta $1.0\,\text{A}$ continuo y $30\,\text{A}$ de pico transitorio. Su recuperación es más lenta (~$2\,\mu\text{s}$), pero amortigua eficazmente el pico inductivo en motores de corriente continua pequeños.
+- **Arduino Nano V3 (Accionamiento Directo Garantizado a 5.0V):**
+  - El pin `D3` entrega $V_{OH} \ge 4.2\,\text{V}$ (típico $4.8\,\text{V}-4.9\,\text{V}$). A este voltaje, el **IRLZ44N** (Vishay Siliconix / Infineon) tiene su resistencia de conducción $R_{DS(on)} \le 0.035\,\Omega$ **100% garantizada por la tabla de especificaciones eléctricas de la hoja de datos**. Disipa menos de $5\,\text{mW}$ y opera totalmente saturado a temperatura ambiente.
+- **ESP32 DevKit V1 (Accionamiento a 3.3V):**
+  - **Hoja de Datos Oficial del IRLZ44N:** No contiene especificación garantizada de $R_{DS(on)}$ para tensiones de compuerta $\le 3.3\,\text{V}$ (solo especifica hasta $4.0\,\text{V}$ en tabla). Aunque las curvas típicas de laboratorio a $25^\circ\text{C}$ muestran conducción suficiente para cargas de $300\,\text{mA}$, una unidad con tolerancia desfavorable ($V_{GS(th)} \to 2.0\,\text{V}$) reduce el sobrevoltaje efectivo a $\approx 1.1\,\text{V}$.
+  - **Decisión de Ingeniería para ESP32:** Se establece como **etapa de potencia oficial de producción un Módulo MOSFET con Optoacoplador / Pre-Driver (LR7843, AOD4184 o Módulo Relé 5V)**. Estos módulos aceptan la señal lógica de 3.3V en su entrada y conmutan la compuerta usando los 5.0V de la fuente principal, garantizando saturación plena de fábrica.
+  - **Accionamiento Directo de IRLZ44N en ESP32:** Se clasifica estrictamente como **alternativa experimental de banco**, no apta para compra definitiva sin antes verificar con multímetro que $V_{GS} \ge 3.1\,\text{V}$, $V_{DS} \le 0.05\,\text{V}$ y temperatura $< 40^\circ\text{C}$ bajo carga real.
+  - **FQP30N06L:** **DESCARTADO FORMALMENTE** para el ESP32. Su $V_{GS(th)}$ alcanza hasta $2.5\,\text{V}$, dejando un margen de sobretensión inaceptable de apenas $0.8\,\text{V}$ a 3.3V.
+
+### 4.2 Selección del Diodo Flyback: Recirculación Inductiva
+- **1N4148:** Es un diodo de señal pequeña de conmutación rápida. Su corriente continua máxima es de solo $150\,\text{mA}-200\,\text{mA}$. La microbomba genera corrientes de arranque y picos de desconexión inductiva de más de $500\,\text{mA}-800\,\text{mA}$. **El 1N4148 puede destruirse en cortocircuito y dañar la etapa de conmutación.**
+- **1N5819 (Diodo Schottky - Elección Principal):** Soporta $1.0\,\text{A}$ continuo y $25\,\text{A}$ de sobretensión transitoria. Proporciona una ruta de recirculación de muy baja impedancia y baja caída directa ($V_F \approx 0.35\,\text{V}$) con recuperación ultra rápida ($< 10\,\text{ns}$), reduciendo la magnitud del transitorio inductivo a bornes del motor. Su efectividad para preservar la estabilidad del microcontrolador debe comprobarse con la carga real en el montaje definitivo.
+- **1N4007 (Diodo Rectificador de Silicio - Alternativa Aceptable):** Soporta $1.0\,\text{A}$ continuo y $30\,\text{A}$ de pico. Aunque su tiempo de recuperación es mayor (~$2\,\mu\text{s}$) y su caída es de $\sim 1.0\,\text{V}$, ofrece una ruta de disipación inductiva robusta y probada para motores pequeños de continua.
 
 ### 4.4 Tabla de Verdad del Flotador y Comportamiento Fail-Safe
 

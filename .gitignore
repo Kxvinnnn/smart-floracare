@@ -32,7 +32,13 @@ Desktop.ini
 *.log
 tmp/
 
+# Python
+__pycache__/
+*.pyc
+
 # Credenciales y Secretos de Hardware
+Credentials.h
+**/Credentials.h
 include/Credentials.h
 config/credentials.h
 credentials.h

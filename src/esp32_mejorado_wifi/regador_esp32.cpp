@@ -16,29 +16,31 @@
 #include "SensorValidator.h"
 #include "IrrigationController.h"
 
-// Inclusión segura de credenciales locales (ignorado por Git si existe)
-#if __has_include("Credentials.h")
-  #include "Credentials.h"
-#endif
-
 using namespace FloraCare;
 
-// --- CONFIGURACIÓN WIFI Y SEGURIDAD HTTP ---
-#ifndef SECRET_WIFI_SSID
-  #define SECRET_WIFI_SSID "FLORACARE_SETUP_AP"
+// --- GESTIÓN ESTRICTA DE CREDENCIALES (CERO HARDCODED DEFAULTS) ---
+#if __has_include("Credentials.h")
+  #include "Credentials.h"
+  #define HAS_LOCAL_CREDENTIALS 1
+#else
+  #define HAS_LOCAL_CREDENTIALS 0
 #endif
 
-#ifndef SECRET_WIFI_PASS
-  #define SECRET_WIFI_PASS "plantas123"
+#if HAS_LOCAL_CREDENTIALS && defined(SECRET_WIFI_SSID) && defined(SECRET_WIFI_PASS)
+  static const char* WIFI_SSID       = SECRET_WIFI_SSID;
+  static const char* WIFI_PASS       = SECRET_WIFI_PASS;
+  static constexpr bool WIFI_ENABLED = true;
+#else
+  static const char* WIFI_SSID       = "";
+  static const char* WIFI_PASS       = "";
+  static constexpr bool WIFI_ENABLED = false;
 #endif
 
-#ifndef SECRET_API_TOKEN
-  #define SECRET_API_TOKEN "FLORACARE_DEFAULT_TOKEN_CHANGE_ME"
+#if HAS_LOCAL_CREDENTIALS && defined(SECRET_API_TOKEN)
+  static const char* API_AUTH_TOKEN = SECRET_API_TOKEN;
+#else
+  static const char* API_AUTH_TOKEN = "";
 #endif
-
-static const char* WIFI_SSID      = SECRET_WIFI_SSID;
-static const char* WIFI_PASS      = SECRET_WIFI_PASS;
-static const char* API_AUTH_TOKEN = SECRET_API_TOKEN;
 
 static WebServer server(80);
 
@@ -191,8 +193,7 @@ static void handleApiWater() {
 
     // 2. Verificación de robustez del token de configuración
     // Si el token es el placeholder por defecto o tiene menos de 16 caracteres, la API se inhabilita por seguridad
-    if (strcmp(API_AUTH_TOKEN, "FLORACARE_DEFAULT_TOKEN_CHANGE_ME") == 0 ||
-        strcmp(API_AUTH_TOKEN, "CAMBIA_ESTE_TOKEN_SECRETO_12345") == 0 ||
+    if (strcmp(API_AUTH_TOKEN, "GENERA_UN_TOKEN_SECRETO_DE_16_O_MAS_CARACTERES") == 0 ||
         strlen(API_AUTH_TOKEN) < 16) {
         server.send(403, "application/json", F("{\"error\":\"Forbidden. Remote API disabled: Insecure or default token configured in Credentials.h\"}"));
         return;
@@ -253,21 +254,31 @@ void setup() {
         oledAvailable = true;
     }
 
-    // Conexión WiFi con límite de reintentos
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
-    uint8_t retries = 0;
-    while (WiFi.status() != WL_CONNECTED && retries < 10) {
-        delay(300);
-        retries++;
+    // Conexión WiFi con límite de reintentos (solo si se definieron credenciales en Credentials.h)
+    if (WIFI_ENABLED && strlen(WIFI_SSID) > 0) {
+        Serial.print(F("[WIFI] Conectando a red local... "));
+        WiFi.mode(WIFI_STA);
+        WiFi.begin(WIFI_SSID, WIFI_PASS);
+        uint8_t retries = 0;
+        while (WiFi.status() != WL_CONNECTED && retries < 15) {
+            delay(300);
+            retries++;
+        }
+        if (WiFi.status() == WL_CONNECTED) {
+            Serial.print(F("Conectado. IP: "));
+            Serial.println(WiFi.localIP());
+            const char* headerKeys[] = {"Authorization"};
+            server.collectHeaders(headerKeys, 1);
+            server.on("/", HTTP_GET, handleRoot);
+            server.on("/api/water", HTTP_POST, handleApiWater);
+            server.begin();
+        } else {
+            Serial.println(F("Fallo de conexion. Operando en modo local autonomo."));
+        }
+    } else {
+        Serial.println(F("[SEGURIDAD] Sin Credentials.h configurado. Wi-Fi y API remota deshabilitados."));
+        WiFi.mode(WIFI_OFF);
     }
-
-    // Configuración de endpoints y encabezados del servidor HTTP
-    const char* headerKeys[] = {"Authorization"};
-    server.collectHeaders(headerKeys, 1);
-    server.on("/", HTTP_GET, handleRoot);
-    server.on("/api/water", HTTP_POST, handleApiWater);
-    server.begin();
 
     // Muestreo inicial
     uint16_t raw = sampleAnalogFast();
