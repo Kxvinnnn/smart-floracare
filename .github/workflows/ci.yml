@@ -19,14 +19,31 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
-      - name: Install PlatformIO and test dependencies
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Cache PlatformIO platforms and packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            .pio
+          key: ${{ runner.os }}-platformio-${{ hashFiles('**/platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-platformio-
+
+      - name: Install PlatformIO dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install platformio requests
+          pip install -r requirements.txt
 
-      - name: Run Domain & FSM Unit Test Suite
+      - name: Run Domain & FSM Unit Test Suite (30 Tests)
         run: |
           python tests/test_irrigation_suite.py
 
