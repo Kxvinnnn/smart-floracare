@@ -121,10 +121,11 @@ El firmware adopta una **Arquitectura en Capas Desacoplada (Layered Architecture
   * **Commits Previos Auditados en GitHub:**
     - `bca15cd9a76b83f9f1ea6b8528a92878eb66e2d4` (Primera auditoría: CRIT-01, OBL-01..03, MEN-01..03).
     - `7576c0fb10153634004ff62a6c9ab48ecfcb60a5` (Segunda auditoría: OBL-04 separación 20s/25s, CRIT-01/MEN-05 secuencia 6 pasos, MEN-04 medición térmica sin contacto, CI-01).
-  * **Estado de CI en rama de auditoría (CI-01):** Flujo `.github/workflows/ci.yml` actualizado con `branches: [ main, "audit/**" ]` para ejecutar automáticamente las **76 pruebas automatizadas** y la compilación dual (`nanoatmega328` y `esp32dev`) en cada push a `audit/documentation-review`.
-- **Métricas de Compilación PlatformIO:**
-  - `nanoatmega328`: Flash: ~57.2%, RAM: 30.0% — **SUCCESS**
-  - `esp32dev`: Flash: ~82.6%, RAM: 15.1% — **SUCCESS**
+    - `d03c0c87424520dd8c3864ad45d3103019f1bc36` (Run ID `40390590538` `SUCCESS`; identificó `NUEVO-01`: precisión de alcance de `test_31`, adición de ejecutable C++ nativo `tests/test_native_controller.cpp` y compilación explícita de entornos de banco `nanoatmega328_bench_wdt25s` y `esp32dev_bench_wdt25s`).
+  * **Estado de CI en rama de auditoría (`CI-01` / `NUEVO-01`):** Flujo `.github/workflows/ci.yml` compila y ejecuta en C++ nativo `include/IrrigationController.h` (tanto en modo producción $20\,\text{s}$ como con `-DFLORACARE_BENCH_TEST_WATCHDOG_25S` $25\,\text{s}$), corre las **78 pruebas automatizadas** en Python y compila los **4 entornos PlatformIO** (`nanoatmega328`, `esp32dev`, `nanoatmega328_bench_wdt25s` y `esp32dev_bench_wdt25s`).
+- **Métricas de Compilación PlatformIO (Producción y Banco Aislado):**
+  - `nanoatmega328` (Producción 20s) y `nanoatmega328_bench_wdt25s` (Banco 25s): Flash: ~57.2%, RAM: 30.0% — **SUCCESS**
+  - `esp32dev` (Producción 20s) y `esp32dev_bench_wdt25s` (Banco 25s): Flash: ~82.6%, RAM: 15.1% — **SUCCESS**
 - **Estado de Pruebas Físicas e Integración Eléctrica:**
   - Protocolo ACT-01 a ACT-06 formalizado como `LISTA PARA BANCO`, pero **estrictamente pendiente de ejecución y medición física en silicio**.
   - **Circuito físico:** Completamente desenergizado (0 V).
@@ -132,28 +133,35 @@ El firmware adopta una **Arquitectura en Capas Desacoplada (Layered Architecture
 
 ---
 
-## 🧪 6. Jerarquía y Taxonomía Formal de Pruebas (SW-01 / OBL-04)
+## 🧪 6. Jerarquía y Taxonomía Formal de Pruebas (SW-01 / OBL-04 / NUEVO-01)
 
-La suite del repositorio contiene un total de **76 pruebas automatizadas**, clasificadas formalmente en:
+La suite del repositorio ejecuta **2 binarios C++ nativos** y **78 pruebas automatizadas en Python**, además de **4 compilaciones cruzadas PlatformIO**, clasificadas formalmente en:
 
 ```text
 +-------------------------------------------------------------------------------------------------+
 |                        TAXONOMÍA DE PRUEBAS DE SMART FLORACARE v1.2.1                           |
 +-------------------------------------------------------------------------------------------------+
-| 1. Pruebas de Dominio Lógico (Nivel A): 31 pruebas                                              |
-|    - Archivo: tests/test_irrigation_suite.py                                                    |
-|    - Valida: FSM de IrrigationController, antirrebote, límite auto 20s (test_16 con             |
-|      AUTO_MAX_DURATION_REACHED), watchdog aislado 25s (test_31 con SAFETY_TIMEOUT),             |
-|      cooldown (5s), desbordamiento de millis(), calibración y corte por falta de agua.          |
-|    - Naturaleza: Código Python puro que emula las estructuras de dominio C++.                   |
-|    - Limitación: NO demuestra que el hardware físico funcione.                                  |
+| 1A. Ejecución Nativa del Controlador C++ Real (tests/test_native_controller.cpp + test_32):     |
+|    - Compila con g++ -std=c++17 y ejecuta directamente include/IrrigationController.h           |
+|      e include/SensorValidator.h en dos binarios nativos independientes:                        |
+|      * Modo Producción: verifica corte automático a 20.000 ms (AUTO_MAX_DURATION_REACHED).      |
+|      * Modo Aislado (-DFLORACARE_BENCH_TEST_WATCHDOG_25S): verifica permanencia en WATERING     |
+|        a 20.000 ms / 24.999 ms y corte de watchdog a 25.000 ms (SAFETY_TIMEOUT).                |
+|    - Limitación: Ejecuta en CPU host de CI; NO sustituye el ensayo eléctrico en la placa real.  |
 +-------------------------------------------------------------------------------------------------+
-| 2. Pruebas de Análisis Estático de Firmware (Nivel B1): 12 pruebas                              |
+| 1B. Pruebas de Dominio Lógico Simulado en Python (Nivel A): 32 pruebas (31 mocks + 1 bridge C++)|
+|    - Archivo: tests/test_irrigation_suite.py                                                    |
+|    - Valida: Equivalencia lógica en MockIrrigationController (test_01..test_31, incluyendo      |
+|      test_16 para 20s y test_31 para 25s simulado) y puente a C++ nativo (test_32).             |
+|    - Naturaleza: test_01..test_31 usan un mock Python; NO deben presentarse por sí solos        |
+|      como ejecución directa del firmware C++ (NUEVO-01).                                        |
++-------------------------------------------------------------------------------------------------+
+| 2. Pruebas de Análisis Estático de Firmware (Nivel B1): 13 pruebas                              |
 |    - Archivo: tests/test_firmware_security.py                                                   |
 |    - Valida: Cero credenciales hardcodeadas, recolección de cabeceras HTTP, polaridad           |
-|      INPUT_PULLUP de boya, presencia de códigos 4xx/5xx, StopReasons diferenciados y            |
-|      ausencia de bucles infinitos.                                                              |
-|    - Naturaleza: Expresiones regulares e inspección de texto sobre archivos C++.                |
+|      INPUT_PULLUP de boya, presencia de códigos 4xx/5xx, StopReasons diferenciados,             |
+|      entornos de banco en platformio.ini y ausencia de bucles infinitos.                        |
+|    - Naturaleza: Expresiones regulares e inspección de texto sobre archivos C++ y config.       |
 |    - Limitación: NO valida el comportamiento en tiempo de ejecución en silicio.                 |
 +-------------------------------------------------------------------------------------------------+
 | 3. Pruebas HTTP Simuladas con Mocks (Nivel B2): 33 pruebas                                      |
@@ -164,8 +172,10 @@ La suite del repositorio contiene un total de **76 pruebas automatizadas**, clas
 |    - Naturaleza: Modelo de prueba en Python que simula peticiones HTTP.                         |
 |    - Limitación: NO invoca el servidor WebServer real ni prueba asignaciones de heap en silicio.|
 +-------------------------------------------------------------------------------------------------+
-| 4. Compilaciones Reproducibles en CI: Dual-Target PlatformIO                                    |
-|    - nanoatmega328 y esp32dev compilan con 0 errores.                                           |
+| 4. Compilaciones Reproducibles en CI: 4 Entornos PlatformIO (Producción + Banco Aislado)        |
+|    - Producción: nanoatmega328 y esp32dev.                                                      |
+|    - Banco Aislado (ACT-06.A2): nanoatmega328_bench_wdt25s y esp32dev_bench_wdt25s              |
+|      (compilados explícitamente con -D FLORACARE_BENCH_TEST_WATCHDOG_25S).                      |
 |    - Limitación: La compilación exitosa no es una prueba funcional ni certifica el circuito.    |
 +-------------------------------------------------------------------------------------------------+
 | 5. Protocolo de Pruebas Físicas en Banco Instrumentado: ACT-01 a ACT-06                        |
@@ -197,7 +207,7 @@ La suite del repositorio contiene un total de **76 pruebas automatizadas**, clas
 ## 📋 8. Guía de Onboarding para la Siguiente IA
 Si eres un agente de IA que retoma este proyecto:
 1. **Comprueba el estado de Git:** Verifica la rama activa (`main` o `audit/documentation-review`) y ejecuta `git status`.
-2. **No confundas pruebas de software con validación física:** Las 76 pruebas automatizadas demuestran robustez lógica y sintáctica, pero **las pruebas físicas ACT-01 a ACT-06 siguen pendientes de ejecución instrumental**.
+2. **No confundas pruebas de software con validación física:** Los 2 ejecutables C++ nativos (`tests/test_native_controller.cpp`) y las 78 pruebas automatizadas en Python demuestran robustez lógica y sintáctica, pero **las pruebas físicas ACT-01 a ACT-06 siguen pendientes de ejecución instrumental**.
 3. **Ten en cuenta las restricciones de diseño:**
    - La bomba es de 5 V (JT-DC3W). No hay electroválvulas de 12 V.
    - El sensor capacitivo en ESP32 DEBE ir a 3.3V (pin 34).

@@ -146,5 +146,29 @@ class TestFirmwareSecurity(unittest.TestCase):
                 self.assertNotIn("while (true)", loop_body)
                 self.assertNotIn("while(1)", loop_body)
 
+    def test_bench_watchdog_environments_and_native_cpp_harness(self):
+        """Verify native C++ test harness, PlatformIO bench environments, and CI workflow steps."""
+        pio_ini = os.path.join(REPO_ROOT, "platformio.ini")
+        ci_yml = os.path.join(REPO_ROOT, ".github", "workflows", "ci.yml")
+        native_cpp = os.path.join(REPO_ROOT, "tests", "test_native_controller.cpp")
+
+        with open(pio_ini, "r", encoding="utf-8") as f:
+            pio_content = f.read()
+        self.assertIn("[env:nanoatmega328_bench_wdt25s]", pio_content)
+        self.assertIn("[env:esp32dev_bench_wdt25s]", pio_content)
+        self.assertIn("-D FLORACARE_BENCH_TEST_WATCHDOG_25S", pio_content)
+
+        with open(ci_yml, "r", encoding="utf-8") as f:
+            ci_content = f.read()
+        self.assertIn("tests/test_native_controller.cpp", ci_content)
+        self.assertIn("nanoatmega328_bench_wdt25s", ci_content)
+        self.assertIn("esp32dev_bench_wdt25s", ci_content)
+
+        with open(native_cpp, "r", encoding="utf-8") as f:
+            cpp_content = f.read()
+        self.assertIn('#include "IrrigationController.h"', cpp_content)
+        self.assertIn("StopReason::AUTO_MAX_DURATION_REACHED", cpp_content)
+        self.assertIn("StopReason::SAFETY_TIMEOUT", cpp_content)
+
 if __name__ == "__main__":
     unittest.main()

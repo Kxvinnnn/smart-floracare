@@ -531,9 +531,14 @@ class TestSmartFloraCareComprehensive(unittest.TestCase):
         self.controller.update(25000 + 25001, True, SensorHealth.OK, 15)
         self.assertFalse(self.controller.is_pump_active())
 
-    # 31. Watchdog físico absoluto de 25s aislado del límite automático de 20s (OBL-04)
+    # 31. Modelo simulado Python: Watchdog de 25s aislado del límite automático de 20s (OBL-04 / NUEVO-01)
     def test_31_absolute_safety_watchdog_25s_isolated(self):
-        # Configuración aislada de prueba donde max_auto_ms (30s) supera el techo del watchdog (25s)
+        """
+        ALCANCE: Valida la equivalencia lógica en el modelo simulado Python (MockIrrigationController).
+        NOTA DE AUDITORÍA (NUEVO-01): Esta prueba ejercita el mock Python; la ejecución directa
+        del controlador C++ real (include/IrrigationController.h) se realiza en
+        tests/test_native_controller.cpp y test_32_native_cpp_controller_20s_and_25s_watchdog.
+        """
         isolated_ctrl = MockIrrigationController(max_auto_ms=30000, manual_ms=3000, watchdog_ms=25000)
         self.assertTrue(isolated_ctrl.request_watering(IrrigationSource.AUTO_CYCLE, 1000, True, SensorHealth.OK, 10))
         # A los 20.000 ms (límite normal de producción) y 24.999 ms sigue regando en modo de prueba aislado
@@ -545,6 +550,59 @@ class TestSmartFloraCareComprehensive(unittest.TestCase):
         self.assertEqual(isolated_ctrl.state, ControllerState.FAULT)
         self.assertEqual(isolated_ctrl.last_fault, FaultReason.MAX_TIMEOUT_EXCEEDED)
         self.assertEqual(isolated_ctrl.last_stop_reason, StopReason.SAFETY_TIMEOUT)
+
+    # 32. Ejecución nativa C++ real de include/IrrigationController.h (Modos 20s Producción y 25s Aislado)
+    def test_32_native_cpp_controller_20s_and_25s_watchdog(self):
+        """
+        ALCANCE: Compila y ejecuta el binario C++ nativo (tests/test_native_controller.cpp) contra
+        include/IrrigationController.h cuando g++/clang++ está disponible en el entorno (ej. CI Ubuntu),
+        y verifica la estructura exacta de precedencia C++ y guarda condicional.
+        """
+        import os
+        import shutil
+        import subprocess
+        import tempfile
+
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        include_dir = os.path.join(repo_root, "include")
+        cpp_test_file = os.path.join(repo_root, "tests", "test_native_controller.cpp")
+        ctrl_header = os.path.join(include_dir, "IrrigationController.h")
+
+        self.assertTrue(os.path.exists(cpp_test_file), "Missing native C++ test harness tests/test_native_controller.cpp")
+        with open(ctrl_header, "r", encoding="utf-8") as f:
+            hdr = f.read()
+
+        # Verificar orden de evaluación en C++ real: watchdog (25s) antes de maxAutoDurationMs (20s)
+        idx_wdt = hdr.find("elapsedMs >= config_.maxSafetyWatchdogMs")
+        idx_auto = hdr.find("elapsedMs >= config_.maxAutoDurationMs")
+        self.assertGreater(idx_wdt, 0)
+        self.assertGreater(idx_auto, idx_wdt, "maxSafetyWatchdogMs check must precede maxAutoDurationMs in C++")
+        self.assertIn("makeDefaultControllerConfig", hdr)
+        self.assertIn("#if defined(FLORACARE_BENCH_TEST_WATCHDOG_25S)", hdr)
+
+        compiler = shutil.which("g++") or shutil.which("clang++")
+        if compiler is not None:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                exe_suffix = ".exe" if os.name == "nt" else ""
+                prod_bin = os.path.join(tmpdir, "test_native_prod" + exe_suffix)
+                wdt_bin = os.path.join(tmpdir, "test_native_wdt25s" + exe_suffix)
+
+                # 1. Compilar y ejecutar C++ real en modo producción (20.000 ms -> AUTO_MAX_DURATION_REACHED)
+                subprocess.check_call([
+                    compiler, "-std=c++17", "-Wall", "-Wextra", "-Werror",
+                    "-I", include_dir, cpp_test_file, "-o", prod_bin
+                ])
+                out_prod = subprocess.check_output([prod_bin], text=True)
+                self.assertIn("StopReason::AUTO_MAX_DURATION_REACHED verified", out_prod)
+
+                # 2. Compilar y ejecutar C++ real en modo aislado (-DFLORACARE_BENCH_TEST_WATCHDOG_25S -> SAFETY_TIMEOUT)
+                subprocess.check_call([
+                    compiler, "-std=c++17", "-Wall", "-Wextra", "-Werror",
+                    "-DFLORACARE_BENCH_TEST_WATCHDOG_25S",
+                    "-I", include_dir, cpp_test_file, "-o", wdt_bin
+                ])
+                out_wdt = subprocess.check_output([wdt_bin], text=True)
+                self.assertIn("StopReason::SAFETY_TIMEOUT verified", out_wdt)
 
 
 if __name__ == "__main__":

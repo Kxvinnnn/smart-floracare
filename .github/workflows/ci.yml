@@ -43,14 +43,29 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: "Run Full Automated Test Suite (76 Tests: Domain, Security, and HTTP Auth)"
+      - name: "Compile and Execute Native C++ Controller Tests (Production 20s & Isolated 25s Watchdog)"
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -I include tests/test_native_controller.cpp -o /tmp/test_native_prod
+          /tmp/test_native_prod
+          g++ -std=c++17 -Wall -Wextra -Werror -DFLORACARE_BENCH_TEST_WATCHDOG_25S -I include tests/test_native_controller.cpp -o /tmp/test_native_wdt25s
+          /tmp/test_native_wdt25s
+
+      - name: "Run Full Automated Test Suite (78 Tests: Simulated Domain, Native C++ Bridge, Security, and HTTP Auth)"
         run: |
           python -m unittest discover tests
 
-      - name: Compile Arduino Nano Environment (nanoatmega328)
+      - name: Compile Arduino Nano Production Environment (nanoatmega328)
         run: |
           pio run -e nanoatmega328
 
-      - name: Compile ESP32 Environment (esp32dev)
+      - name: Compile ESP32 Production Environment (esp32dev)
         run: |
           pio run -e esp32dev
+
+      - name: Compile Arduino Nano Bench Watchdog 25s Environment (nanoatmega328_bench_wdt25s)
+        run: |
+          pio run -e nanoatmega328_bench_wdt25s
+
+      - name: Compile ESP32 Bench Watchdog 25s Environment (esp32dev_bench_wdt25s)
+        run: |
+          pio run -e esp32dev_bench_wdt25s

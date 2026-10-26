@@ -61,6 +61,26 @@ struct ControllerConfig {
     uint8_t  autoStopMoisturePct;  // Umbral de corte auto (ej. 70%)
 };
 
+/**
+ * Fábrica constexpr para la configuración estándar de producción o de ensayo aislado
+ * de banco (cuando se compila con -DFLORACARE_BENCH_TEST_WATCHDOG_25S).
+ */
+constexpr ControllerConfig makeDefaultControllerConfig(uint8_t autoStartPct = 20,
+                                                       uint8_t autoStopPct = 70) {
+    return ControllerConfig{
+#if defined(FLORACARE_BENCH_TEST_WATCHDOG_25S)
+        30000U, // MODO ENSAYO AISLADO ACT-06.A2: Eleva límite auto para alcanzar el Watchdog de 25s
+#else
+        20000U, // maxAutoDurationMs: 20 segundos (límite de producción)
+#endif
+        3000U,  // manualBurstDurationMs: 3 segundos
+        25000U, // maxSafetyWatchdogMs: 25 segundos absoluto (watchdog maestro inmutable)
+        5000U,  // cooldownPeriodMs: 5 segundos de enfriamiento entre riegos
+        autoStartPct,
+        autoStopPct
+    };
+}
+
 class IrrigationController {
 public:
     explicit IrrigationController(const ControllerConfig& cfg)
@@ -73,6 +93,7 @@ public:
           lastStopMs_(0) {}
 
     // --- CONSULTAS DE ESTADO ---
+    const ControllerConfig& getConfig() const { return config_; }
     ControllerState getState() const { return state_; }
     bool isPumpActive() const { return state_ == ControllerState::WATERING; }
     FaultReason getLastFault() const { return lastFault_; }
