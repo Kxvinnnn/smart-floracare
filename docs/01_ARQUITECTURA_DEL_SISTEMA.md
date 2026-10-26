@@ -36,7 +36,7 @@ Siguiendo las mejores prácticas de ingeniería de software embebido para sistem
                                     │ lecturas / comandos de driver
 +--------------------------------------------------------------------------+
 | CAPA 2: CONTROLADORES DE DISPOSITIVO (DRIVERS)                           |
-|  - PumpDriver: Control de potencia MOSFET Logic-Level (IRLZ44N/FQP30N06L)|
+|  - PumpDriver: Control de potencia MOSFET (IRLZ44N 5V / Driver NPN+PNP)  |
 |  - CapacitiveSensorDriver: Interfaz analógica libre de electrólisis      |
 |  - FloatSwitchDriver: Interfaz digital debounced (50 ms) para flotador   |
 |  - ButtonDriver: Antirrebote por software no bloqueante (40 ms)          |
@@ -60,9 +60,10 @@ Siguiendo las mejores prácticas de ingeniería de software embebido para sistem
 3. **Desgaste por cavitación y funcionamiento en seco:** Si el depósito se vacía, la bomba succiona aire continuamente hasta que el temporizador venza, deteriorando los sellos de la microbomba sumergible.
 
 ### 2.2 Decisiones de Arquitectura Adoptadas
-1. **MOSFET Canal N Logic-Level (IRLZ44N o FQP30N06L):**
-   - Resistencia de conducción ultra baja: $R_{DS(on)} < 0.035\,\Omega$ a $V_{GS} = 3.3\,\text{V}-5\,\text{V}$.
-   - Caída de tensión despreciable ($< 0.02\,\text{V}$ a 400 mA): la microbomba opera a máxima eficiencia hidráulica sin requerir disipador de calor.
+1. **Etapa de Conmutación de Potencia de Baja Pérdida:**
+   - **En Arduino Nano (5V):** Accionamiento directo con MOSFET de nivel lógico **IRLZ44N**. Según la hoja de datos oficial de Vishay Siliconix (Doc #91328), el fabricante garantiza $R_{DS(on)} \le 0.035\,\Omega$ bajo la condición estandarizada $V_{GS} = 5.0\,\text{V}, I_D = 25\,\text{A}, T_J = 25^\circ\text{C}$ (y $\le 0.040\,\Omega$ a $V_{GS} = 4.0\,\text{V}$). Con la tensión de salida del pin ATmega328P ($V_{OH} \approx 4.2\,\text{V}-4.9\,\text{V}$), la resistencia estática de catálogo queda acotada en ese rango a $25^\circ\text{C}$. La caída de tensión real $V_{DS}$, la disipación efectiva y el comportamiento térmico están sujetos a verificación en banco con carga real.
+   - **En ESP32 (3.3V):** **Driver No Inversor Bipolar NPN+PNP (2 etapas) (Decisión de diseño sujeta a validación en banco).** Diseñado para elevar la señal de 3.3V del GPIO a una excitación de compuerta a nivel óptimo para saturar el IRLZ44N, con resistencias pull-down que fijan el corte durante el arranque o reset del microcontrolador. Las tensiones de compuerta resultantes son predicciones teóricas de circuito que deberán verificarse instrumentalmente en banco.
+   - *Nota de exclusión:* El MOSFET FQP30N06L ha sido **descartado formalmente** por no garantizar saturación ni baja resistencia a 3.3V bajo tolerancias de lote ($V_{GS(th)}$ hasta 2.5V). Los módulos de relé electromecánicos también quedan descartados por violar el principio fail-safe en transitorios.
 2. **Interruptor de Flotador de Nivel (Boya Magnética):**
    - Interbloqueo por hardware y software: si el flotador cae indicando depósito vacío, el controlador transiciona inmediatamente a estado de fallo (`FAULT`), impidiendo cualquier activación de la bomba.
 3. **Zumbador Pasivo Piezoeléctrico con Atenuación Acústica:**

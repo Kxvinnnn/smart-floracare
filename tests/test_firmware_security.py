@@ -51,11 +51,47 @@ class TestFirmwareSecurity(unittest.TestCase):
         self.assertIn("TU_CONTRASENA_WIFI", content)
 
     def test_http_authorization_headers_collected(self):
-        """Verify ESP32 web server collects Authorization header before endpoint registration."""
+        """Verify ESP32 web server collects Authorization and Origin headers before endpoint registration."""
         with open(ESP32_CPP, "r", encoding="utf-8") as f:
             content = f.read()
-        self.assertIn("server.collectHeaders(headerKeys, 1);", content)
-        self.assertIn('const char* headerKeys[] = {"Authorization"};', content)
+        self.assertIn("server.collectHeaders(headerKeys,", content)
+        self.assertIn('"Authorization"', content)
+        self.assertIn('"Origin"', content)
+
+    def test_constant_time_comparison_implemented(self):
+        """Verify safe constant-time comparison is used to mitigate timing attacks on token."""
+        with open(ESP32_CPP, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("safeConstantTimeEquals", content)
+        self.assertIn("volatile uint8_t diff = static_cast<uint8_t>(lenA ^ lenB);", content)
+
+    def test_max_token_length_guard_implemented(self):
+        """Verify maximum input token length is capped at 128 bytes to prevent memory exhaustion."""
+        with open(ESP32_CPP, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("MAX_TOKEN_LEN = 128;", content)
+        self.assertIn("chosenToken.length() > MAX_TOKEN_LEN", content)
+
+    def test_origin_header_csrf_mitigation_implemented(self):
+        """Verify Origin header is inspected to block cross-origin browser POST requests."""
+        with open(ESP32_CPP, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("isOriginAllowed()", content)
+        self.assertIn('server.hasHeader("Origin")', content)
+
+    def test_insecure_token_placeholders_blocked(self):
+        """Verify placeholder tokens from Credentials templates are actively blocked in firmware."""
+        with open(ESP32_CPP, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("GENERA_UN_TOKEN_SECRETO_DE_16_O_MAS_CARACTERES", content)
+        self.assertIn("CAMBIA_ESTE_TOKEN_SECRETO_12345", content)
+
+    def test_dual_auth_conflict_handling_implemented(self):
+        """Verify conflicting credentials between form body and Authorization header are rejected."""
+        with open(ESP32_CPP, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("formToken != headerToken", content)
+        self.assertIn('server.send(400, "application/json"', content)
 
     def test_safe_float_switch_failsafe_logic(self):
         """Verify that water level switch uses INPUT_PULLUP and checks LOW for OK."""
@@ -70,13 +106,16 @@ class TestFirmwareSecurity(unittest.TestCase):
         self.assertIn("digitalRead(PIN_FLOTADOR_AGUA) == LOW", nano_content)
 
     def test_http_api_security_status_codes(self):
-        """Verify ESP32 handleApiWater handles 405, 403, 401, and 409 defensive status codes."""
+        """Verify ESP32 handleApiWater handles 400, 401, 403, 405, 409, 413, 429 defensive status codes."""
         with open(ESP32_CPP, "r", encoding="utf-8") as f:
             content = f.read()
-        self.assertIn('server.send(405, "application/json"', content)
-        self.assertIn('server.send(403, "application/json"', content)
+        self.assertIn('server.send(400, "application/json"', content)
         self.assertIn('server.send(401, "application/json"', content)
+        self.assertIn('server.send(403, "application/json"', content)
+        self.assertIn('server.send(405, "application/json"', content)
         self.assertIn('server.send(409, "application/json"', content)
+        self.assertIn('server.send(413, "application/json"', content)
+        self.assertIn('server.send(429, "application/json"', content)
         self.assertIn('server.send(303);', content)
 
     def test_unified_irrigation_timing_limits(self):

@@ -35,9 +35,9 @@ La siguiente tabla presenta el listado completo para el montaje dual (o los íte
 | **MCU-02** | **ESP32 DevKit V1** | ESP-WROOM-32 (30 pines), Dual-Core, 3.3V, Wi-Fi 802.11 b/g/n | 1 | Solo ESP32 | Electronilab / Dinastía | \$28,000 | \$28,000 |
 | **DISP-01** | **Pantalla OLED 0.96"** | 128×64 monocromo, controlador SSD1306, bus I2C (0x3C) | 2 | 1 c/u | Electronilab / RoosTech | \$13,500 | \$27,000 |
 | **SENS-01** | **Sensor de Suelo Capacitivo v1.2** | Salida analógica proporcional. **Nano a 5V; ESP32 obligatoriamente a 3.3V** | 2 | 1 c/u | Mecabot / RoosTech | \$6,500 | \$13,000 |
-| **PWR-01** | **Driver de Bomba (Etapa Oficial ESP32)** | **Driver No Inversor NPN+PNP (2N2222A + 2N3906 + IRLZ44N) o Módulo HW-517** | 1 | Solo ESP32 | Electrónica local / Mecabot | \$4,500 | \$4,500 |
-| **PWR-02** | **Driver de Bomba (Etapa Oficial Nano)** | **MOSFET IRLZ44N Logic-Level** (Vishay/Infineon, $R_{DS(on)} \le 0.035\,\Omega$ a 5V) | 1 | Solo Nano | Almacén de electrónica | \$3,000 | \$3,000 |
-| **DIO-01** | **Diodo Flyback de Potencia** | **1N5819 Schottky** ($40\,\text{V}, 1\,\text{A}, V_F \approx 0.35\,\text{V}$, $<10\,\text{ns}$). Alternativa: 1N4007 | 2 | 1 c/u | Almacén de electrónica | \$600 | \$1,200 |
+| **PWR-01** | **Driver de Bomba (Etapa Oficial ESP32)** | **Driver No Inversor NPN+PNP (2N2222A + 2N3906 + IRLZ44N) (Decisión de diseño). Alternativa: Módulo HW-517 (Pendiente de evaluación)** | 1 | Solo ESP32 | Electrónica local / Mecabot | \$4,500 | \$4,500 |
+| **PWR-02** | **Driver de Bomba (Etapa Oficial Nano)** | **MOSFET IRLZ44N Logic-Level** (Vishay Siliconix Doc #91328, $R_{DS(on)} \le 0.035\,\Omega$ a $V_{GS}=5.0\,\text{V}, 25\,\text{A}, 25^\circ\text{C}$) | 1 | Solo Nano | Almacén de electrónica | \$3,000 | \$3,000 |
+| **DIO-01** | **Diodo Flyback de Potencia** | **1N5819 Schottky** ($40\,\text{V}, 1\,\text{A}, V_F \le 0.35\,\text{V}$) - Selección provisional sujeta a validación en banco. Alternativa: 1N4007 | 2 | 1 c/u | Almacén de electrónica | \$600 | \$1,200 |
 | **SW-01** | **Sensor de Flotador de Nivel** | Boya magnética con interruptor reed hermético (CS-CO058 / Horizontal) | 2 | 1 c/u | [Mecabot](https://www.mecabot.com/products/sensor-de-nivel-de-agua-horizontal-cs-co058) / Electronilab | \$12,900 | \$25,800 |
 | **BUZ-01** | **Zumbador Pasivo (Buzzer)** | Transductor piezoeléctrico pasivo 3.3V/5V. Tono suave 850 Hz vía PWM | 2 | 1 c/u | Mecabot / RoosTech | \$1,200 | \$2,400 |
 | **BTN-01** | **Pulsador Táctil (Push Button)** | Tact switch 6×6 mm de 4 pines para inserción en protoboard | 2 | 1 c/u | Almacén local | \$400 | \$800 |
@@ -58,7 +58,7 @@ Estos componentes conforman la planta física de riego e impulsión, compartida 
 
 | ID | Componente | Especificación Técnica Verificada | Cant. | Proveedor Sugerido | Precio Est. (COP) |
 | :--- | :--- | :--- | :---: | :--- | :---: |
-| **PMP-01** | **Microbomba Sumergible DC** | Modelo JT-DC3W (3.5V - 5V DC), caudal 80-120 L/h, consumo nominal 200-350 mA ($I_{stall} \approx 0.8\,\text{A}-1.2\,\text{A}$) | 1 | Robótica / Acuarios | \$8,500 |
+| **PMP-01** | **Microbomba Sumergible DC** | Modelo JT-DC3W (3.5V - 5V DC), caudal 80-120 L/h, nominal 200-350 mA en agua. ($I_{stall}$ estimada en 0.8–1.2 A; prohibido frenar rotor en banco) | 1 | Robótica / Acuarios | \$8,500 |
 | **HOS-01** | **Manguera Flexible Transparente** | Grado alimenticio (silicona o PVC atóxico), diámetro interno 6 mm o 7 mm | 1 m | Ferreterías / Acuarios | \$3,000 |
 | **PWR-SRC** | **Fuente Regulada 5V DC (2A a 3A)** | Adaptador de pared 5V DC estabilizado con conector Jack DC o terminales | 1 | Electrónica / Hogar | \$16,000 |
 | **RES-TNK** | **Depósito de Agua Estable** | Contenedor plástico hermético reciclado con tapa (1.5 a 3 Litros) | 1 | Hogar / Bazar | \$0 |
@@ -86,13 +86,13 @@ Estos componentes conforman la planta física de riego e impulsión, compartida 
    - **FQP30N06L:** Ha sido **rechazado oficialmente** debido a su umbral de compuerta ($V_{GS(th)} = 1.0\,\text{V}-2.5\,\text{V}$), que en condiciones límite no garantiza conducción a 3.3V.
    - **IRLZ44N Directo:** No posee especificación garantizada de $R_{DS(on)}$ para $V_{GS} \le 3.3\,\text{V}$ en la tabla oficial de Vishay/Infineon.
    - **Pre-Driver NPN Simple Inversor:** **PROHIBIDO** porque encendería la bomba en el arranque cuando el GPIO está en LOW o High-Z.
-   - **Opción Oficial y Recomendada en Taller:** **Driver No Inversor Bipolar de 2 Etapas (NPN 2N2222A + PNP 2N3906)** excitando la compuerta del IRLZ44N a +4.85V plenos, o **Buffer Lógico TTL 74AHCT125 / 74HCT14**, garantizando lógica activa en alto (`HIGH = ON`, `LOW = OFF`) y apagado estricto durante el arranque y reinicio.
-   - **Alternativa Comercial Aceptable:** Módulo MOSFET HW-517 (Dual AOD4184A) con verificación previa en banco de $V_{DS} \le 50\,\text{mV}$ bajo carga real.
+   - **Opción Oficial Adoptada:** **Driver No Inversor Bipolar de 2 Etapas (NPN 2N2222A + PNP 2N3906 + IRLZ44N) (Decisión de diseño sujeta a validación en banco)**, calculada para conmutar la compuerta a nivel óptimo (~4.85V teóricos) preservando lógica activa en alto (`HIGH = ON`, `LOW = OFF`) y asegurando corte estricto en arranque y reset.
+   - **Alternativa Comercial Pendiente de Evaluación:** Módulo MOSFET HW-517 (Dual AOD4184A) sujeto a inspección previa de esquemático interno, tensión de activación a 3.3V, estado en boot/reset y ensayo con carga real de bomba ($V_{DS} \le 50\,\text{mV}$).
    - **Módulos de Relé Electromecánicos: DESCARTADOS OFICIALMENTE.** Los relés Low-Trigger quedan prohibidos por violar el principio fail-safe (arranque accidental durante el reset). Los módulos High-Trigger presentan problemas frecuentes de conmutación marginal con los 3.3V del ESP32 debido a la caída de tensión del optoacoplador interno de 5V, y no garantizan estabilidad transitoria en el encendido.
 2. **Alimentación del Sensor Capacitivo de Suelo:**
    - En **Arduino Nano**: Alimentado a 5.0V. Su salida entrega entre ~2.4V (agua) y ~4.8V (aire), operando dentro del rango del ADC de 10 bits.
    - En **ESP32**: **Obligatoriamente alimentado a 3.3V**. Conectarlo a 5V generaría tensiones superiores a los 3.3V tolerados por el `GPIO 34`, dañando de forma permanente el conversor ADC del ESP32.
 3. **Diodo Flyback de Conmutación:**
-   - Debe instalarse un **1N5819 Schottky** ($1\,\text{A}$ continuo, $40\,\text{V}$, sobrecorriente no repetitiva $I_{FSM} = 25\,\text{A}$, conmutación $<10\,\text{ns}$) o alternativamente un **1N4007** en antiparalelo directo con los terminales del motor. Cubre holgadamente tanto la corriente de régimen (200–350 mA) como la corriente de arranque/bloqueo ($I_{stall} \approx 0.8\,\text{A}-1.2\,\text{A}$), absorbiendo de forma segura el transitorio inductivo. Su eficacia contra reinicios y ruidos electromagnéticos debe confirmarse en el montaje real.
+   - Se selecciona provisionalmente un **1N5819 Schottky** ($1\,\text{A}$ continuo, $40\,\text{V}$, $V_F \le 0.35\,\text{V}$) o alternativamente un **1N4007** en antiparalelo directo con los terminales del motor. Su capacidad de absorber transitorios inductivos con el consumo nominal (200–350 mA) y picos transitorios de arranque ($I_{stall}$ estimada en 0.8–1.2 A) debe confirmarse en el montaje real con la bomba y fuente definitivas. Queda prohibido bloquear deliberadamente el rotor para forzar mediciones de sobrecorriente.
 4. **Distribución de Potencia:**
    - La bomba toma su corriente en paralelo directamente de la fuente externa de 5V (2A–3A). **Bajo ninguna circunstancia debe alimentarse el motor desde los pines 5V o 3V3 de la placa de desarrollo**.

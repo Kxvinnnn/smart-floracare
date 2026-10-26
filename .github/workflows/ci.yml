@@ -43,9 +43,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Domain & FSM Unit Test Suite (30 Tests)
+      - name: Run Full Automated Test Suite (75+ Tests: Domain, Security, and HTTP Auth)
         run: |
-          python tests/test_irrigation_suite.py
+          python -m unittest discover tests
 
       - name: Compile Arduino Nano Environment (nanoatmega328)
         run: |

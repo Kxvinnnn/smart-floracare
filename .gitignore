@@ -31,6 +31,8 @@ Desktop.ini
 # Logs y Temporales
 *.log
 tmp/
+*.patch
+*.zip
 
 # Python
 __pycache__/

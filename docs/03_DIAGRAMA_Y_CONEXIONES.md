@@ -127,27 +127,26 @@ En el ESP32 (lógica de 3.3V), la compuerta del IRLZ44N **no debe conectarse dir
          |                                |                         |
       [VIN Pin]                           | (Riel +5V)        Bomba 5V (+)
     +-----------------+                   |                         |
-    |  ESP32 DEVKIT   |                   +---[R_pu: 10 kΩ]---+   [ M ] (Microbomba DC)
-    |  (30 Pines)     |                   |                   |     |
-    |                 |                   |  Emisor (Pin 1)   |     |
-    |  GPIO 18        |                   |  +-------------+  |     |
-    |  (Disparo 3.3V) |                   +--| Q2: 2N3906  |  |     |
-    |        |        |                      | (PNP TO-92) |  |     |
-    |    [R1: 2.2 kΩ] |                      +-------------+  |     |
-    |        |        |                   Base (Pin 2) |      |     |
-    |        +-------+------> Base (Pin 2)     |       |      |     |
-    |                |        +-------------+  |       |      |     |
-    |         [R_pd1: 10 kΩ]  | Q1: 2N2222A |  |       |      |     |
-    |                |        | (NPN TO-92) |  |       |      |     |
-    |               GND       +-------------+  |       |      |     |
-    |                         Emisor (Pin 1)|  |       |      |     |
-    |                               |          |       |      |     |
-    |                              GND         |       |      |     |
-    |                                          |       |      |     |
-    |    Colector Q1 (Pin 3) ------------------+       |      |     |
-    |                                                  |      |     |
-    |    Colector Q2 (Pin 3: Salida +4.85V) -----------+      |     |
-    |                                                  |      |     |
+    |  ESP32 DEVKIT   |                   +---------------+   [ M ] (Microbomba DC)
+    |  (30 Pines)     |                   |               |         |
+    |                 |             [R_pu: 10 kΩ]   Emisor (Pin 1)  |
+    |  GPIO 18        |                   |         +-------------+ |
+    |  (Disparo 3.3V) |                   +---------| Q2: 2N3906  | |
+    |        |        |                   |         | (PNP TO-92) | |
+    |   [R1: 2.2 kΩ]  |              [R2: 2.2 kΩ]   +-------------+ |
+    |        |        |                   |         Colector (Pin 3)|
+    |        +-------+------> Base (Pin 2)|               |         |
+    |                |        +-------------+             |         |
+    |         [R_pd1: 10 kΩ]  | Q1: 2N2222A |             |         |
+    |                |        | (NPN TO-92) |             |         |
+    |               GND       +-------------+             |         |
+    |                         Emisor (Pin 1)|             |         |
+    |                               |                     |         |
+    |                              GND                    |         |
+    |                                                     |         |
+    |    Colector Q1 (Pin 3) -----------------------------+         |
+    |                                                     |         |
+    |    Salida a Compuerta (+4.85V teóricos) ------------+         |
     |                                    +-------------+      |     |
     |                                    |                    |     |
     |                               Pin 1: Gate               |     |
@@ -208,8 +207,8 @@ En el ESP32 (lógica de 3.3V), la compuerta del IRLZ44N **no debe conectarse dir
 
 ### 4.1 Comportamiento del MOSFET a 3.3V (ESP32) vs 5V (Nano) y Diseño de Etapa de Potencia
 
-- **Arduino Nano V3 (Accionamiento Directo Garantizado a 5.0V):**
-  - El pin `D3` entrega $V_{OH} \ge 4.2\,\text{V}$ (típico $4.8\,\text{V}-4.9\,\text{V}$). A este voltaje, el **IRLZ44N** (Vishay Siliconix / Infineon) tiene su resistencia de conducción $R_{DS(on)} \le 0.035\,\Omega$ **100% garantizada por la tabla de especificaciones eléctricas de la hoja de datos**. Disipa menos de $5\,\text{mW}$ y opera totalmente saturado a temperatura ambiente con lógica directa activa en alto (`HIGH = ON`, `LOW = OFF`).
+- **Arduino Nano V3 (Accionamiento Directo a 5.0V):**
+  - El pin `D3` entrega $V_{OH} \ge 4.2\,\text{V}$ (típicamente $4.8\,\text{V}-4.9\,\text{V}$ con carga mínima de compuerta). Según la hoja de datos oficial de Vishay Siliconix (Doc #91328), el MOSFET **IRLZ44N** especifica una resistencia máxima garantizada de $R_{DS(on)} \le 0.035\,\Omega$ bajo la condición estandarizada $V_{GS} = 5.0\,\text{V}, I_D = 25\,\text{A}, T_J = 25^\circ\text{C}$ (y $\le 0.040\,\Omega$ a $V_{GS} = 4.0\,\text{V}, I_D = 21\,\text{A}$). Para niveles de excitación entre $4.2\,\text{V}$ y $4.9\,\text{V}$, la resistencia estática de catálogo queda acotada en ese rango a $25^\circ\text{C}$, con una disipación nominal calculada de $\approx 4.3\,\text{mW}$ a $350\,\text{mA}$, sujeta al coeficiente térmico positivo de la juntura y a la verificación experimental de la tensión real $V_{GS}$ y caída $V_{DS}$ en banco.
 - **ESP32 DevKit V1 (Accionamiento a 3.3V) y Desafío de Nivel Lógico:**
   - **Limitación del IRLZ44N a 3.3V:** No posee especificación garantizada de $R_{DS(on)}$ para tensiones de compuerta $\le 3.3\,\text{V}$ (solo especifica hasta $4.0\,\text{V}$ en tabla). Aunque las curvas típicas de laboratorio a $25^\circ\text{C}$ muestran conducción suficiente para cargas de $300\,\text{mA}$, una unidad con tolerancia desfavorable ($V_{GS(th)} \to 2.0\,\text{V}$) reduce el sobrevoltaje efectivo a $\approx 1.1\,\text{V}$.
   - **FQP30N06L:** **DESCARTADO FORMALMENTE** para el ESP32. Su $V_{GS(th)}$ alcanza hasta $2.5\,\text{V}$, dejando un margen de sobretensión inaceptable de apenas $0.8\,\text{V}$ a 3.3V.
@@ -236,21 +235,22 @@ Para lograr traslación de nivel de 3.3V a 5.0V con lógica no inversora y apaga
 ```
                   +5V Fuente Externa (Riel de Potencia)
                      |                   |
-                     |                 [R_pu: 10 kΩ]
-                     |                   |
-                     |         +---------+--------- Emisor Q2 (PNP: 2N3906 / 2N2907)
-                     |         |                   |
-                     |       [R2: 2.2 kΩ]         Base Q2
-                     |         |                   |
-                     |         +-- Colector Q1     Colector Q2
-                     |                (NPN)        |
-                     |                             +-----> Gate MOSFET (IRLZ44N)
-                     |                                       |
-GPIO 18 ---[R1: 2.2 kΩ]--- Base Q1                         [R_pd2: 10 kΩ]
-               |              |                              |
-             [R_pd1: 10 kΩ]  Emisor Q1                     GND
-               |              |
-              GND            GND
+                     |                   +------------------------+
+                     |                   |                        |
+                     |             [R_pu: 10 kΩ]            Emisor Q2 (Pin 1)
+                     |                   |                  +-------------+
+                     |                   +------------------| Q2: 2N3906  |
+                     |                   |                  | (PNP TO-92) |
+                     |             [R2: 2.2 kΩ]             +-------------+
+                     |                   |                  Colector Q2 (Pin 3)
+                     |             Colector Q1 (Pin 3)            |
+                     |             +-------------+                +-----> Gate MOSFET (IRLZ44N)
+                     |             | Q1: 2N2222A |                             |
+GPIO 18 ---[R1: 2.2 kΩ]------------| (NPN TO-92) |                       [R_pd2: 10 kΩ]
+               |                   +-------------+                             |
+         [R_pd1: 10 kΩ]            Emisor Q1 (Pin 1)                          GND
+               |                         |
+              GND                       GND
 ```
 
 **Tabla de Estados del Driver No Inversor NPN+PNP:**

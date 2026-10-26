@@ -26,7 +26,7 @@ static Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // --- ASIGNACIÓN DE PINES (HAL ARDUINO NANO) ---
 static constexpr uint8_t PIN_SENSOR_HUMEDAD = A0; // Entrada Analógica (ADC 10 bits: 0-1023)
-static constexpr uint8_t PIN_DRIVER_BOMBA   = 3;  // Salida Digital (Gate MOSFET IRLZ44N / FQP30N06L)
+static constexpr uint8_t PIN_DRIVER_BOMBA   = 3;  // Salida Digital (Gate MOSFET IRLZ44N)
 static constexpr uint8_t PIN_FLOTADOR_AGUA  = 4;  // Entrada Digital (Pull-up interno)
 static constexpr uint8_t PIN_BUZZER_PASIVO  = 5;  // Salida PWM / Frecuencia
 static constexpr uint8_t PIN_BOTON_MANUAL   = 2;  // Entrada Digital (Pull-up interno)

@@ -47,24 +47,46 @@ Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes
 - `5V` y `GND` de fuente van al riel de potencia de la protoboard y a los pines `5V` y `GND` del Nano.
 - Sensor Capacitivo: `VCC` a `5V`, `GND` a riel común, `AOUT` al pin analógico `A0`.
 - Display OLED (0.96" SSD1306): `VCC` a `5V`, `GND` a riel, `SDA` a `A4`, `SCL` a `A5`.
-- Driver MOSFET (IRLZ44N o FQP30N06L):
+- Driver MOSFET (IRLZ44N - Logic Level):
   - Gate (Pin 1): Resistencia en serie de 1 kΩ hacia pin digital `D3`. Resistencia pull-down de 10 kΩ entre Gate y GND.
   - Drain (Pin 2): Conectado al polo negativo (`-`) del conector de la bomba.
   - Source (Pin 3): Conectado sólidamente al riel común de tierra (`GND`).
 - Diodo Flyback (1N5819 Schottky): Cátodo (franja plateada) al polo positivo `+5V`, ánodo al polo negativo de la bomba (Drain).
 - Flotador de Nivel: Pin digital `D4` a un terminal del interruptor; el otro terminal a `GND` (usa `INPUT_PULLUP`).
-- Pulsador Manual: Pin digital `D2` con resistencia de 10 kΩ pull-down externa o configuración directa a `GND` con `INPUT_PULLUP`.
+- Pulsador Manual: Pin digital `D2` configurado a `GND` con `INPUT_PULLUP` interno.
 - Buzzer Pasivo: Pin digital `D5` con resistencia de 100–220 Ω en serie hacia un polo del buzzer; otro polo a `GND`.
 
 #### Variante B: ESP32 DevKit V1 (3.3V lógica)
-- Fuente externa: `5V` al pin `VIN`/`5V` del ESP32 y al polo positivo del motor. Tierra común (`GND`).
-- Sensor Capacitivo: **`VCC` conectado al riel de `3.3V` del ESP32** (no al riel de 5V, para asegurar que la salida no exceda los 3.3V). Salida a `GPIO 34` (ADC1_CH6).
-- Display OLED: `VCC` a `3.3V`, `GND` a tierra, `SDA` a `GPIO 21`, `SCL` a `GPIO 22`.
-- Driver MOSFET: Gate con resistencia de 1 kΩ hacia `GPIO 18`. Pull-down de 10 kΩ a `GND`.
-- Diodo Flyback: 1N5819 en antiparalelo con la bomba (cátodo a +5V, ánodo a Drain).
-- Flotador de Nivel: `GPIO 19` a interruptor con pull-up (`INPUT_PULLUP`).
-- Pulsador Manual: `GPIO 4` con debouncing no bloqueante.
-- Buzzer Pasivo: `GPIO 23` con resistencia limitadora de 220 Ω.
+- **Alimentación y Masa Común:** Fuente externa regulada de `5V` (2A–3A) conectada al pin `VIN`/`5V` del ESP32 y al polo positivo (`+`) del motor. Masa común (`GND`) sólidamente unificada entre fuente, ESP32 y terminales de tierra de los drivers.
+- **Sensor Capacitivo v1.2:** **`VCC` conectado obligatoriamente al riel de `3.3V` del ESP32** (nunca a 5V para evitar sobretensión en el conversor analógico). Salida analógica conectada a `GPIO 34` (ADC1_CH6). `GND` al riel común.
+- **Display OLED SSD1306:** `VCC` a `3.3V`, `GND` a tierra, `SDA` a `GPIO 21`, `SCL` a `GPIO 22`.
+- **Driver de Bomba Previsto: Etapa Bipolar No Inversora NPN+PNP (2 Etapas) (Decisión de diseño sujeta a validación en banco):**
+  - **Q1 (Transistor NPN 2N2222A - Conmutador de Nivel):**
+    - Base: Conectada a `GPIO 18` a través de resistencia limitadora $R_1 = 2.2\,\text{k}\Omega$. Resistencia de seguridad pull-down $R_{pd1} = 10\,\text{k}\Omega$ conectada entre Base y `GND` (fija $0.0\,\text{V}$ durante arranque y reset).
+    - Emisor: Conectado rígidamente a `GND`.
+    - Colector: Conectado a la Base de Q2 a través de resistencia limitadora $R_2 = 2.2\,\text{k}\Omega$.
+  - **Q2 (Transistor PNP 2N3906 - Conmutador de Potencia de Compuerta):**
+    - Emisor: Conectado directamente al riel de potencia de `+5V`.
+    - Base: Resistencia de pull-up $R_{pu} = 10\,\text{k}\Omega$ entre Base y riel `+5V` (asegura corte estricto cuando Q1 está apagado). Conectada al Colector de Q1 mediante $R_2 = 2.2\,\text{k}\Omega$.
+    - Colector: Conectado a la Compuerta (Gate) del MOSFET IRLZ44N.
+  - **Q3 (MOSFET de Potencia N-Channel IRLZ44N):**
+    - Gate (Pin 1): Conectada al Colector de Q2. Resistencia pull-down de compuerta $R_{pd2} = 10\,\text{k}\Omega$ entre Gate y `GND` (drena cargas parásitas de compuerta cuando Q2 corta).
+    - Drain (Pin 2): Conectado al polo negativo (`-`) de la microbomba JT-DC3W.
+    - Source (Pin 3): Conectado sólidamente a `GND` común.
+  - *Aclaración de Validación:* Las tensiones calculadas ($V_{GS} \approx 4.9\,\text{V}$ en ON, $\le 0.1\,\text{V}$ en reset/corte) son predicciones teóricas de diseño; su comprobación física entre pines Gate y Source constituye un criterio propuesto de aceptación que debe validarse en banco antes de conectar la carga.
+  - *Advertencia de Componentes:* Verificar el orden de patas (Pinout) en la hoja de datos del fabricante del lote específico adquirido (ej. encapsulado plástico TO-92 vs metálico TO-18).
+- **Alternativa Comercial Pendiente de Evaluación para ESP32: Módulo MOSFET HW-517:**
+  - Si se considera el módulo comercial HW-517 (Dual AOD4184A), este se mantiene como **alternativa pendiente de evaluación** y no como sustituto validado por defecto.
+  - Antes de su eventual aceptación en banco, se debe:
+    1. Inspeccionar el circuito esquemático real del módulo adquirido y el modelo de transistores/optoacopladores montados.
+    2. Verificar que la tensión de excitación de 3.3V del ESP32 sea suficiente para saturarlo de forma garantizada según hoja de datos del fabricante.
+    3. Comprobar que mantenga la bomba estrictamente apagada durante el arranque, reset o estado flotante (High-Z) del microcontrolador.
+    4. Realizar un ensayo en vacío y bajo carga con bomba real para confirmar que la caída $V_{DS} \le 50\,\text{mV}$ y la temperatura de operación no presenten deriva térmica.
+  - *Módulos de relé:* Descartados formalmente para esta etapa.
+- **Diodo Flyback (1N5819 Schottky - Selección Provisional de Diseño):** Conectado en antiparalelo directo a bornes del motor (cátodo con franja a +5V, ánodo a Drain). Su idoneidad definitiva queda sujeta a comprobación en banco frente al comportamiento real de la microbomba.
+- **Flotador de Nivel:** `GPIO 19` a interruptor con pull-up interno (`INPUT_PULLUP`); el otro terminal a `GND`.
+- **Pulsador Manual:** `GPIO 4` a pulsador táctil conectado a `GND` con debouncing por software.
+- **Buzzer Pasivo:** `GPIO 23` con resistencia limitadora de 220 Ω en serie; otro polo a `GND`.
 
 ### 2.2 Protocolo de Ensayos en Frío (Sin Conectar Fuente)
 
@@ -202,7 +224,7 @@ Con la bomba real conectada al circuito hidráulico de prueba y alimentada con s
   2. Medir y registrar los parámetros eléctricos en régimen permanente con multímetro:
      - Tensión de alimentación en bornes: $V_{\text{fuente}} \approx 5.0\,\text{V}$.
      - Corriente de operación del motor: $I_{\text{bomba}} \approx 200\,\text{mA} - 350\,\text{mA}$.
-     - Caída de tensión en saturación entre Drain y Source: $V_{DS}$.
+     - Caída de tensión Drain-Source ($V_{DS}$): Medida directamente entre los pines físicos Drain (Pin 2) y Source (Pin 3) del encapsulado TO-220 del MOSFET (evitando incluir caídas parásitas de pistas o jumpers de protoboard).
   3. Registrar la temperatura ambiente del banco de pruebas ($T_{\text{amb}}$).
   4. Ejecutar un ciclo continuo de bombeo de duración máxima ($T = 20\,\text{s}$).
   5. Inmediatamente al finalizar los 20 segundos, medir con termómetro infrarrojo o termocupla tipo K la temperatura del encapsulado del MOSFET / Módulo Driver ($T_{\text{case}}$) y del diodo 1N5819.
@@ -212,14 +234,24 @@ Con la bomba real conectada al circuito hidráulico de prueba y alimentada con s
 | :--- | :---: | :---: | :---: |
 | **Temperatura Ambiente ($T_{\text{amb}}$)** | $--^\circ\text{C}$ | Referencia ($20^\circ\text{C}-30^\circ\text{C}$) | Nominal |
 | **Corriente de Bomba ($I_{\text{bomba}}$)** | $--\,\text{mA}$ | $\le 500\,\text{mA}$ | Conforme |
-| **Caída Drain-Source ($V_{DS}$)** | $--\,\text{mV}$ | $\le 50\,\text{mV}$ ($0.05\,\text{V}$) | Saturación |
+| **Caída Drain-Source ($V_{DS}$)** | $--\,\text{mV}$ | $\le 50\,\text{mV}$ ($0.05\,\text{V}$) | Criterio Aceptación |
 | **Temp. Encapsulado Driver ($T_{\text{case}}$)** | $--^\circ\text{C}$ | $\le 45^\circ\text{C}$ | Térmico |
 | **Elevación Térmica ($\Delta T = T_{\text{case}} - T_{\text{amb}}$)**| $--^\circ\text{C}$ | **$\le 15^\circ\text{C}$** | **ACT-05 OK** |
 | **Temp. Diodo Flyback 1N5819** | $--^\circ\text{C}$ | $\le 40^\circ\text{C}$ | Conforme |
 
-**Criterio Cuantitativo de Aceptación (ACT-05):**
-- $\Delta T \le 15^\circ\text{C}$ sobre la temperatura ambiente tras 20 segundos continuos a plena carga.
-- Caída $V_{DS} \le 50\,\text{mV}$ (indicativa de $R_{DS(on)} \le 0.14\,\Omega$ a $350\,\text{mA}$).
+**Criterio Cuantitativo de Aceptación y Desglose Analítico (ACT-05):**
+- **Disipación Nominal Teórica vs Criterio de Banco:**
+  - *Cálculo nominal teórico:* Para $I_{\text{bomba}} \approx 350\,\text{mA}$ y $R_{DS(on)} \le 0.035\,\Omega$, la caída teórica en canal es $V_{DS, \text{teórico}} \approx 12.3\,\text{mV}$ y la potencia nominal $P_{\text{dis, nominal}} \approx 4.3\,\text{mW}$.
+  - *Criterio de aceptación en banco:* El valor $V_{DS} \le 50\,\text{mV}$ define la cota superior admisible para el ensayo en banco. A corriente nominal ($350\,\text{mA}$), representa $P \le 17.5\,\text{mW}$ ($R_{DS(on)} \le 0.14\,\Omega$), constituyendo un límite de rechazo conservador.
+- **Criterios Térmicos y Duración del Ensayo:**
+  - Los límites $\Delta T \le 15^\circ\text{C}$ y $T_{\text{case}} \le 45^\circ\text{C}$ son **criterios propuestos de aceptación que deben cumplirse de forma independiente**; no son resultados ya medidos.
+  - La medición se efectúa tras 20 segundos continuos a plena carga, lo que corresponde al tiempo máximo de riego seguro establecido por el watchdog del firmware. Esta duración evalúa la estabilidad durante el ciclo operativo, pero **no demuestra que se haya alcanzado el equilibrio térmico estacionario infinito**.
+  - La elevación teórica derivada mediante $R_{\theta JA} \approx 62^\circ\text{C/W}$ ($\approx 0.3^\circ\text{C}$ a 4.3 mW nominales, $\approx 1.1^\circ\text{C}$ a 17.5 mW de límite instrumental) es un cálculo analítico bajo condiciones estándar de laboratorio abierto; la temperatura final real depende de la ventilación en el gabinete, la temperatura ambiente y la pieza concreta.
+  - Se debe registrar: temperatura ambiente inicial ($T_{\text{amb}}$), temperatura del disipador/encapsulado ($T_{\text{case}}$), corriente real medida y tiempo exacto.
+- **Régimen de Corrientes del Motor:**
+  - *Corriente nominal:* $200\,\text{mA}-350\,\text{mA}$ medida en operación sumergida en agua.
+  - *Corriente de arranque transitoria ($I_{\text{inrush}}$):* Transitorio breve al energizar.
+  - *Corriente de rotor bloqueado ($I_{\text{stall}}$):* Estimada teóricamente en $0.8\,\text{A}-1.2\,\text{A}$. Queda prohibido bloquear deliberadamente el rotor de la microbomba en banco de pruebas.
 - Ausencia total de olores a sobrecalentamiento, zumbidos anómalos o deriva térmica.
 
 **Criterio de Aceptación Fase 5:** Los 5 ensayos aprobados al 100% con registro documental de mediciones.
@@ -227,6 +259,9 @@ Con la bomba real conectada al circuito hidráulico de prueba y alimentada con s
 ---
 
 ## 📌 Fase 6: Instalación Definitiva en Maceta de Interior
+
+> [!CAUTION] Condición de Aprobación para Funcionamiento Desatendido
+> La instalación definitiva en la maceta y la operación autónoma continua permanecen en estado **PENDIENTE** hasta que se completen y registren los resultados cuantitativos de las Fases 1 a 5 (Cold Checks, ensayos de tensión de compuerta, caída $V_{DS}$, elevación térmica $\Delta T$, prueba antisifón ACT-06 y prueba de interlock ACT-04). Bajo ninguna circunstancia debe dejarse el sistema operando sin supervisión hasta formalizar dicho registro.
 
 1. **Alojamiento en Gabinete:**
    - Instala la placa perforada y la pantalla en una caja estanca o de conexiones plásticas.
