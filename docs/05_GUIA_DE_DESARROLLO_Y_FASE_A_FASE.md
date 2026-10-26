@@ -116,18 +116,22 @@ Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes
 1. **Identificador:** `ACT-02`
 2. **Objetivo:** Comprobar que el circuito de adaptación de 2 etapas NPN+PNP entrega una tensión de compuerta plena ($V_{GS} \ge 4.50\,\text{V}$) al ser activado desde el GPIO de 3.3 V del ESP32, asegurando saturación profunda del MOSFET IRLZ44N dentro de especificación de catálogo ($R_{DS(on)} \le 0.035\,\Omega$).
 3. **Riesgo cubierto:** Conducción parcial del MOSFET a 3.3V, sobrecalentamiento por resistencia de canal elevada y fallo de par de arranque de la bomba.
-4. **Equipo e instrumentos:** Multímetro Digital (DMM) calibrado (resolución 1 mV).
-5. **Montaje y Trayectoria Eléctrica Explícita (MEN-02):**
+4. **Equipo e instrumentos:** Multímetro Digital (DMM) calibrado (resolución 1 mV), termocupla tipo K o termómetro infrarrojo (IR) sin contacto.
+5. **Montaje, Trayectoria Eléctrica y Seguridad Térmica (MEN-02 / MEN-04):**
    - **Pre-driver:** Conectar Base de Q1 a GPIO 18 vía $R_1 = 2.2\,\text{k}\Omega$ (con $R_{pd1} = 10\,\text{k}\Omega$ a GND); Emisor de Q1 a GND; Colector de Q1 a Base de Q2 vía $R_2 = 2.2\,\text{k}\Omega$.
    - **Etapa PNP:** Emisor de Q2 al riel de $+5.0\,\text{V}$ estabilizado; Base de Q2 polarizada con $R_{pu} = 10\,\text{k}\Omega$ a $+5.0\,\text{V}$; Colector de Q2 a Gate de Q3 (con $R_{pd2} = 10\,\text{k}\Omega$ a GND).
    - **Carga de Prueba de Bajo Lado (Low-Side Test Load):**
      * Conectar un extremo de la resistencia de potencia de $15\,\Omega$, $5\,\text{W}$ directamente al riel de $+5.0\,\text{V}$ de la fuente externa.
      * Conectar el segundo extremo de la resistencia al terminal Drenador (Drain, pin 2) del MOSFET Q3 (Nodo N6).
      * Conectar el terminal Fuente (Source, pin 3) del MOSFET Q3 directamente a la masa común (GND).
-     * *Comprobación de disipación y corriente teórica:* $I = \frac{5.0\,\text{V}}{15\,\Omega} \approx 0.333\,\text{A} = 333\,\text{mA}$; $P = \frac{V^2}{R} = \frac{25}{15} \approx 1.67\,\text{W}$ (margen nominal de 5W adecuado para pulsos de prueba).
-   - **Verificación de Corriente y Parada de Emergencia:**
-     * Intercalar amperímetro en serie (escala 10 A o 2 A DC) entre la resistencia y el Drain, o medir tensión en bornes de la resistencia ($I = V_R / 15\,\Omega$).
-     * *Parada de Emergencia:* Si la resistencia se sobrecalienta excesivamente ($> 60^\circ\text{C}$ al tacto) o si la tensión $V_{DS}$ supera $0.50\,\text{V}$ durante el pulso, cortar de inmediato el interruptor de la fuente de $+5\,\text{V}$.
+     * *Comprobación de disipación y corriente teórica:* $I = \frac{5.0\,\text{V}}{15\,\Omega} \approx 0.333\,\text{A} = 333\,\text{mA}$; $P = \frac{V^2}{R} = \frac{25}{15} \approx 1.67\,\text{W}$.
+   - **Instrumentación Térmica, Régimen de Pulso y Criterio de Parada Sin Contacto (MEN-04):**
+     * **Prohibición de contacto manual:** Queda estrictamente prohibido tocar la resistencia de potencia o el MOSFET mientras el circuito esté energizado o inmediatamente después del pulso.
+     * **Medición de temperatura:** Fijar mecánicamente una sonda termocupla tipo K sobre el cuerpo cerámico central de la resistencia de $15\,\Omega$ (o apuntar un termómetro IR a $5\text{--}10\,\text{cm}$ de su superficie).
+     * **Duración y ciclo de trabajo:** La carga solo se energizará durante pulsos supervisados de $3.0\,\text{s}$, dejando un intervalo de enfriamiento mínimo de $30\,\text{s}$ entre activaciones.
+     * **Verificación de corriente:** Intercalar amperímetro en serie (escala 10 A o 2 A DC) entre la resistencia y el Drain, o medir tensión en bornes de la resistencia ($I = V_R / 15\,\Omega$).
+     * **Criterio de Parada de Emergencia Instrumental:** Cortar de inmediato el interruptor de la fuente de $+5\,\text{V}$ si la lectura de termocupla/IR supera **$60.0\,^\circ\text{C}$**, si la corriente medida se desvía fuera de la ventana **$300\text{--}370\,\text{mA}$**, o si la caída $V_{DS}$ en Q3 supera **$0.50\,\text{V}$** durante la conducción.
+     * **Manipulación segura:** Desenergizar siempre la fuente externa y comprobar $0.0\,\text{V}$ con el multímetro antes de modificar cualquier conexión.
 6. **Precondiciones:** ACT-01 aprobada. Firmware configurado para emitir comando de riego manual de 3 s.
 7. **Procedimiento:**
    - Activar el riego manual mediante pulsador.
@@ -229,59 +233,72 @@ Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes
 
 ---
 
-### ACT-06: Watchdog de Seguridad, Recuperación de FSM y Validación de Servicio HTTP Real (OBL-01)
+### ACT-06: Límites Temporales de Riego (20 s vs 25 s), Recuperación de FSM y Validación HTTP Real (OBL-01 / OBL-04)
 1. **Identificador:** `ACT-06`
-2. **Objetivo:** Verificar en silicio real los dos subprotocolos críticos de recuperación y servicio:
-   - **Subprotocolo ACT-06.A (Watchdog y FSM):** Disparo y corte incondicional por Watchdog Timer de seguridad a los 25.0 segundos ante fallo de humedad, con respeto estricto del periodo de enfriamiento (*cooldown* de 5.0 s) e inhibición de rearme.
-   - **Subprotocolo ACT-06.B (Seguridad HTTP, Rate Limiter y Control de Actuador):** Respuesta determinista del servidor WebServer real compilado en el ESP32 ante 7 escenarios HTTP estructurados, verificación del limitador de frecuencia (429), prevención de rebotes entre fallos de autenticación y preservación del apagado de la bomba ante peticiones rechazadas.
-3. **Riesgo cubierto:** F-05 (Watchdog de software), F-08, F-16, F-17, F-18 (Seguridad HTTP, ataques de temporización, desbordamiento de memoria heap en silicio).
+2. **Objetivo:** Verificar en silicio real y de manera independiente los tres mecanismos de protección de software y red:
+   - **Subprotocolo ACT-06.A1 (Límite Operativo de Riego Automático — 20.0 s en Firmware de Producción):** Comprobar que con el firmware de producción intacto (`maxAutoDurationMs = 20000 ms`), un ciclo automático que no alcance la meta de humedad es cortado exactamente a los **$20.0\,\text{s} \pm 0.5\,\text{s}$** con razón identificable `StopReason::AUTO_MAX_DURATION_REACHED` (`"TIMEOUT 20S"` en OLED), entrando en estado de bloqueo seguro `FAULT (MAX_TIMEOUT_EXCEEDED)`.
+   - **Subprotocolo ACT-06.A2 (Watchdog Físico Absoluto — 25.0 s mediante Configuración de Prueba Aislada):** Comprobar que la barrera redundante de segundo nivel (`maxSafetyWatchdogMs = 25000 ms`) corta incondicionalmente a los **$25.0\,\text{s} \pm 0.5\,\text{s}$** con razón identificable `StopReason::SAFETY_TIMEOUT` (`"WDT 25S ERR"` en OLED) cuando se ejecuta bajo el flag de preprocesador aislado de banco (`-DFLORACARE_BENCH_TEST_WATCHDOG_25S`), sin alterar las constantes del firmware de producción.
+   - **Subprotocolo ACT-06.B (Seguridad HTTP, Rate Limiter y Control de Actuador):** Respuesta determinista del servidor WebServer real compilado en el ESP32 ante 7 escenarios HTTP estructurados, verificación del limitador de frecuencia (429) activado específicamente por token inválido (`lastFailedAuthMs`), y preservación del apagado de la bomba ante peticiones rechazadas.
+3. **Riesgo cubierto:** F-05 (Límite de ciclo automático de 20 s y Watchdog absoluto de 25 s), F-08, F-16, F-17, F-18 (Seguridad HTTP, ataques de temporización, desbordamiento de memoria heap en silicio).
 4. **Equipo e instrumentos:** Cronómetro digital calibrado, estación de trabajo con Python / cURL / Postman conectada a la misma subred Wi-Fi privada del ESP32, Monitor Serie a 115200 baudios, Multímetro monitoreando N5 ($V_{GS}$) y N6 ($V_{DS}$).
-5. **Montaje:** ESP32 DevKit V1 conectado a red local de laboratorio privada (VLAN IoT aislada). Sonda capacitiva mantenida en aire seco (<20% de humedad) para forzar demanda de riego continuo. Bomba monitoreada eléctricamente (se permite mantener la bomba sumergida o sustituida por carga de prueba).
+5. **Montaje:** ESP32 DevKit V1 conectado a red local de laboratorio privada (VLAN IoT aislada). Sonda capacitiva mantenida en aire seco (<20% de humedad) para forzar demanda de riego continuo. Bomba monitoreada eléctricamente (se permite mantener la bomba sumergida o sustituida por carga de prueba de $15\,\Omega$, $5\,\text{W}$).
 6. **Precondiciones:** ACT-01 a ACT-05 aprobadas. Archivo `Credentials.h` configurado con token seguro de más de 16 caracteres no predeterminado.
 7. **Procedimiento Operativo:**
 
-   #### Subprotocolo ACT-06.A: Firmware y Watchdog de Seguridad
-   - Con el sensor en aire seco (<20%), permitir que el controlador inicie el riego automático.
+   #### Subprotocolo ACT-06.A1: Validación del Límite Operativo Automático (20.0 s — Firmware de Producción)
+   - Con el firmware de producción estándar cargado (`maxAutoDurationMs = 20000 ms`, sin flags de prueba) y el sensor en aire seco (<20%), permitir que el controlador inicie el riego automático (`IrrigationSource::AUTO_CYCLE`).
    - Iniciar simultáneamente el cronómetro.
-   - Dejar correr el ciclo sin humedecer el sensor (simulando rotura de tubería o sonda fuera de maceta).
-   - Registrar el instante exacto en que el firmware corta la alimentación de la bomba.
-   - Pulsar de forma insistente el botón manual durante los siguientes 5 segundos para verificar la inhibición por periodo de enfriamiento (*cooldown*).
+   - Dejar correr el ciclo sin humedecer el sensor (simulando rotura de manguera o sonda fuera de maceta).
+   - Registrar el instante exacto en que el firmware corta la salida (`GPIO 18` a `LOW`, $V_{GS} \le 0.10\,\text{V}$).
+   - Verificar en el Monitor Serie la traza identificable: `[FAULT] AUTO_MAX_DURATION_REACHED (20000 ms) -> MAX_TIMEOUT_EXCEEDED` y en la pantalla OLED el mensaje `"TIMEOUT 20S"`.
+   - Pulsar el botón manual durante los siguientes 5 segundos y posteriormente para verificar que el controlador permanece enclavado en `ControllerState::FAULT` y rechaza todo rearme hasta ejecutar recuperación explícita o reinicio.
+
+   #### Subprotocolo ACT-06.A2: Validación Aislada del Watchdog Absoluto (25.0 s — Sin Modificar Código de Producción)
+   - *Fundamento técnico (OBL-04):* En operación normal de producción, el límite específico de riego automático ($20.000\,\text{ms}$) se alcanza antes que el watchdog global ($25.000\,\text{ms}$). Para probar físicamente la ruta de $25.000\,\text{ms}$ (`elapsedMs >= config_.maxSafetyWatchdogMs`) sin debilitar las constantes de producción:
+     1. **Evidencia en Suite Automatizada (CI):** Verificada mediante el test unitario dedicado `test_31_absolute_safety_watchdog_25s_isolated` en `tests/test_irrigation_suite.py`.
+     2. **Ejecución en Banco Físico con Flag Aislado:** Compilar y cargar temporalmente el firmware pasando el flag de compilación aislado `-DFLORACARE_BENCH_TEST_WATCHDOG_25S` (que selecciona en preprocesador `maxAutoDurationMs = 30000 ms` exclusivamente para este binario de prueba).
+     3. Con la sonda en aire seco (<20%), iniciar el ciclo automático y el cronómetro.
+     4. Confirmar que el bombeo supera la marca de $20.0\,\text{s}$ y es cortado incondicionalmente por el techo del watchdog a los **$25.0\,\text{s} \pm 0.5\,\text{s}$** ($V_{GS} \le 0.10\,\text{V}$).
+     5. Verificar en el Monitor Serie la traza exclusiva de esta ruta: `[FAULT] SAFETY_TIMEOUT_WATCHDOG (25000 ms) -> MAX_TIMEOUT_EXCEEDED` y en la pantalla OLED el mensaje `"WDT 25S ERR"`.
+     6. **Paso Obligatorio de Restauración:** Recompilar y flashear de inmediato el firmware de producción estándar (sin `-DFLORACARE_BENCH_TEST_WATCHDOG_25S`) y confirmar que el corte vuelve a ocurrir a los $20.0\,\text{s}$ (`"TIMEOUT 20S"`) antes de dar por cerrado el subprotocolo.
 
    #### Subprotocolo ACT-06.B: Secuencia Estructurada de 7 Escenarios HTTP (ESP32 WebServer)
    Ejecutar en orden estricto los siguientes 7 escenarios mediante cURL, registrando código devuelto, tiempo y estado de bomba:
 
-   | ID Escenario | Petición y Cabeceras HTTP | Condición Previa / Intervalo | Código Esperado | Estado de Bomba |
+   | ID Escenario | Petición y Cabeceras HTTP | Comportamiento Interno de `lastFailedAuthMs` / Intervalo | Código Esperado | Estado de Bomba |
    | :--- | :--- | :--- | :---: | :---: |
-   | **HTTP-REQ-01** | `GET /api/water` | Inicio de suite | **`405 Method Not Allowed`** | OFF ($V_{GS} \le 0.10\,\text{V}$) |
-   | *Espera 1* | Pausa entre peticiones | Esperar $500\,\text{ms}$ | -- | Inactiva |
-   | **HTTP-REQ-02** | `POST /api/water` (Sin cabecera `Authorization` ni token) | Ausencia de credenciales | **`401 Unauthorized`** | OFF ($V_{GS} \le 0.10\,\text{V}$) |
-   | *Reinicio Rate Limiter* | **Pausa de Despenalización Obligatoria** | **Esperar $\ge 1.500\,\text{ms}$** (supera ventana de 1.000 ms) | -- | Inactiva |
-   | **HTTP-REQ-03** | `POST /api/water` con `Authorization: Bearer TOKEN_INVALIDO` | Credencial errónea tras reset | **`401 Unauthorized`** | OFF ($V_{GS} \le 0.10\,\text{V}$) |
-   | **HTTP-REQ-04** | `POST /api/water` con cualquier payload | **Ráfaga inmediata ($< 100\,\text{ms}$ tras REQ-03)** | **`429 Too Many Requests`** | OFF ($V_{GS} \le 0.10\,\text{V}$) |
-   | *Reinicio Rate Limiter* | **Pausa de Despenalización Obligatoria** | **Esperar $\ge 1.500\,\text{ms}$** (supera ventana de 1.000 ms) | -- | Inactiva |
-   | **HTTP-REQ-05** | `POST /api/water` con token válido pero `Origin: http://sitio-malicioso.com` | Intento CSRF con origen cruzado | **`403 Forbidden`** | OFF ($V_{GS} \le 0.10\,\text{V}$) |
-   | *Espera 2* | Pausa entre peticiones | Esperar $500\,\text{ms}$ | -- | Inactiva |
-   | **HTTP-REQ-06** | `POST /api/water` con token válido pero cuerpo $> 256$ bytes | Carga útil sobredimensionada | **`413 Payload Too Large`** | OFF ($V_{GS} \le 0.10\,\text{V}$) |
-   | *Espera 3* | Pausa entre peticiones | Esperar $500\,\text{ms}$ | -- | Inactiva |
+   | **HTTP-REQ-01** | `GET /api/water` | Inicio de suite (no modifica `lastFailedAuthMs`) | **`405 Method Not Allowed`** | OFF ($V_{GS} \le 0.10\,\text{V}$) |
+   | *Pausa TCP 1* | Separación entre solicitudes | Esperar $500\,\text{ms}$ (evita solapamiento de sockets) | -- | Inactiva |
+   | **HTTP-REQ-02** | `POST /api/water` (Sin cabecera `Authorization` ni token) | Ausencia de token (`chosenToken.length() == 0`); **no actualiza `lastFailedAuthMs`** | **`401 Unauthorized`** | OFF ($V_{GS} \le 0.10\,\text{V}$) |
+   | *Pausa TCP 2* | Separación limpia de estado entre solicitudes | Esperar $500\,\text{ms}$ | -- | Inactiva |
+   | **HTTP-REQ-03** | `POST /api/water` con `Authorization: Bearer TOKEN_INVALIDO` | Fallo de comparación (`!authorized`); **registra `lastFailedAuthMs = nowMs` y arma ventana de $1.000\,\text{ms}$** | **`401 Unauthorized`** | OFF ($V_{GS} \le 0.10\,\text{V}$) |
+   | **HTTP-REQ-04** | `POST /api/water` con cualquier payload | **Ráfaga inmediata ($< 100\,\text{ms}$ tras REQ-03)** dentro de la ventana `(nowMs - lastFailedAuthMs) < 1000` | **`429 Too Many Requests`** | OFF ($V_{GS} \le 0.10\,\text{V}$) |
+   | *Reinicio Rate Limiter* | **Pausa de Despenalización Obligatoria** | **Esperar $\ge 1.500\,\text{ms}$** para que expire la ventana de $1.000\,\text{ms}$ armada en REQ-03 | -- | Inactiva |
+   | **HTTP-REQ-05** | `POST /api/water` con token válido pero `Origin: http://sitio-malicioso.com` | Intento CSRF con origen cruzado tras expirar rate limit | **`403 Forbidden`** | OFF ($V_{GS} \le 0.10\,\text{V}$) |
+   | *Pausa TCP 3* | Separación entre solicitudes | Esperar $500\,\text{ms}$ | -- | Inactiva |
+   | **HTTP-REQ-06** | `POST /api/water` con token válido pero cuerpo $> 256$ bytes | Carga útil sobredimensionada (`clientContentLength() > 256`) | **`413 Payload Too Large`** | OFF ($V_{GS} \le 0.10\,\text{V}$) |
+   | *Pausa TCP 4* | Separación entre solicitudes | Esperar $500\,\text{ms}$ | -- | Inactiva |
    | **HTTP-REQ-07** | `POST /api/water` con token válido, `Origin` canónico y body válido | Petición legítima autorizada | **`303 See Other`** | **ON durante $3.0\,\text{s}$** luego OFF |
 
    - Monitorear en el Monitor Serie el valor de `ESP.getFreeHeap()` antes de iniciar REQ-01 y tras finalizar REQ-07.
 
 8. **Mediciones a registrar:**
-   - Subprotocolo A: Tiempo exacto de corte por watchdog ($T_{\text{wdt}}$), duración del cooldown ($T_{\text{cool}}$).
+   - Subprotocolo A1: Tiempo de corte automático en producción ($T_{\text{auto20}}$), mensaje OLED (`"TIMEOUT 20S"`), traza serie (`AUTO_MAX_DURATION_REACHED`).
+   - Subprotocolo A2: Tiempo de corte por watchdog absoluto en modo aislado ($T_{\text{wdt25}}$), mensaje OLED (`"WDT 25S ERR"`), traza serie (`SAFETY_TIMEOUT_WATCHDOG`), confirmación de reflasheo del binario de producción.
    - Subprotocolo B: Códigos de estado HTTP para REQ-01 a REQ-07, confirmación de bomba inactiva en REQ-01..06, duración de pulso en REQ-07, telemetría de heap ($Heap_{\text{init}}$, $Heap_{\text{final}}$).
 9. **Criterios de aceptación cuantificables:**
-   - **Criterio A (Watchdog):** $T_{\text{wdt}} = 25.0\,\text{s} \pm 0.5\,\text{s}$; transición obligatoria a `FAULT(MAX_TIMEOUT_EXCEEDED)`. Inhibición de rearme manual durante $5.0\,\text{s} \pm 0.5\,\text{s}$. Tensión en compuerta $V_{GS} \le 0.10\,\text{V}$.
+   - **Criterio A1 (Límite Automático 20 s):** $T_{\text{auto20}} = 20.0\,\text{s} \pm 0.5\,\text{s}$; causa `StopReason::AUTO_MAX_DURATION_REACHED`, transición a `FAULT (MAX_TIMEOUT_EXCEEDED)`, compuerta $V_{GS} \le 0.10\,\text{V}$.
+   - **Criterio A2 (Watchdog Absoluto 25 s):** $T_{\text{wdt25}} = 25.0\,\text{s} \pm 0.5\,\text{s}$ bajo compilación de prueba aislada; causa `StopReason::SAFETY_TIMEOUT`, transición a `FAULT (MAX_TIMEOUT_EXCEEDED)`, compuerta $V_{GS} \le 0.10\,\text{V}$, y restauración verificada del firmware de producción ($20.0\,\text{s}$).
    - **Criterio B (HTTP y Rate Limiting):**
      * Coincidencia estricta y secuencial en los 7 códigos HTTP: `405`, `401`, `401`, `429`, `403`, `413`, `303`.
      * Bomba estrictamente apagada ($V_{GS} \le 0.10\,\text{V}$) en los escenarios 1 a 6.
      * Riego accionado exclusivamente en REQ-07 con duración de pulso de $3.0\,\text{s} \pm 0.2\,\text{s}$.
      * Estabilidad de memoria heap: $\Delta Heap = Heap_{\text{init}} - Heap_{\text{final}} \le 200\,\text{bytes}$ tras completar los 7 escenarios.
-10. **Resultado esperado:** Watchdog actúa exactamente a 25 s; suite de 7 escenarios HTTP cumple secuencialmente sin falsos positivos de rate limiting ni fugas de memoria.
+10. **Resultado esperado:** Corte automático de producción a los 20.0 s (`AUTO_MAX_DURATION_REACHED`); corte de watchdog absoluto a los 25.0 s (`SAFETY_TIMEOUT`) en prueba aislada; suite de 7 escenarios HTTP cumple secuencialmente sin fugas de memoria.
 11. **Resultado real:** PENDIENTE DE MEDICIÓN EN BANCO.
-12. **Evidencia:** Registros de cURL con timestamps y log serie con lecturas de heap (Pendiente).
+12. **Evidencia:** Registros de cURL con timestamps y log serie con trazas de parada y lecturas de heap (Pendiente).
 13. **Estado:** `LISTA PARA BANCO`.
-14. **Observaciones y acciones correctivas:** Si REQ-03 devuelve 429 en lugar de 401, incrementar la pausa de despenalización a 2.000 ms. Si se detecta fuga de heap acumulativa, revisar instancias `String` en los callbacks de `WebServer`.
+14. **Observaciones y acciones correctivas:** No dejar nunca instalado el binario con `-DFLORACARE_BENCH_TEST_WATCHDOG_25S` tras concluir ACT-06.A2. Si se detecta fuga de heap acumulativa, revisar instancias `String` en los callbacks de `WebServer`.
 
 ---
 
@@ -309,7 +326,7 @@ Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes
 | **ACT-03** | Conmutación real con bomba ($V_{DS} \le 50\,\text{mV}$) | `LISTA PARA BANCO` | Termografía / DMM tras 20 s en agua | Aprobación previa de ACT-01 y ACT-02 |
 | **ACT-04** | Supresión Back-EMF con diodo 1N5819 ($V_{\text{peak}} \le 6\,\text{V}$)| `LISTA PARA BANCO` | Oscilograma de disparo único en corte | Aprobación previa de ACT-03 |
 | **ACT-05** | Sensor de nivel fail-safe (corte en $\le 50\,\text{ms}$) | `LISTA PARA BANCO` | Log serie y medición de entrada pull-up | Montaje de boya en depósito de prueba |
-| **ACT-06** | Watchdog (25s) y servidor HTTP real en silicio | `LISTA PARA BANCO` | Cronometraje WDT y ráfaga de peticiones cURL | Conexión Wi-Fi de banco en red privada |
+| **ACT-06** | Límite auto (20s), Watchdog aislado (25s) y HTTP real | `LISTA PARA BANCO` | Cronometraje A1/A2, trazas serie y 7 peticiones cURL | Conexión Wi-Fi de banco en red privada |
 
 > [!CAUTION]
 > **Prohibición de Operación Desatendida:**

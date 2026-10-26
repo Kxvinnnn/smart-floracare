@@ -62,10 +62,10 @@ La siguiente tabla enumera con precisión cada componente del circuito, distingu
 | **PMP-01** | Microbomba sumergible | JT-DC3W (3.5V - 5V DC, 200-350 mA) | 1 (Compartida) | Impulsión hidráulica de agua hacia la planta | `docs/01_ARQUITECTURA_DEL_SISTEMA.md` | CONFIRMADO POR DOCUMENTACIÓN |
 | **PWR-SRC** | Fuente regulada | 5V DC 2A a 3A estabilizada | 1 (Compartida) | Alimentación unificada de potencia y lógica | `docs/03_DIAGRAMA_Y_CONEXIONES.md` | CONFIRMADO POR DOCUMENTACIÓN |
 
-> [!CAUTION] Alerta Crítica sobre Pinout de Q1 y Q2 en Encapsulado TO-92 (CRIT-01):
+> [!CAUTION] Alerta Crítica sobre Pinout de Q1 y Q2 en Encapsulado TO-92 (CRIT-01 / MEN-05):
 > La selección de los transistores bipolares Q1 (2N2222A) y Q2 (2N3906) es de naturaleza funcional y **provisional en cuanto al orden numérico de pines**.
 > Existen variantes de mercado con orden invertido: por ejemplo, la serie `P2N2222A` (onsemi) presenta patillaje **1: Colector, 2: Base, 3: Emisor (C-B-E)**, mientras que la serie `PN2222A` u otros fabricantes utilizan **1: Emisor, 2: Base, 3: Colector (E-B-C)**.
-> **Instrucción Obligatoria:** Antes de realizar el montaje o energizar el circuito, es mandatorio inspeccionar el marcaje serigrafiado en el componente físico, obtener la hoja técnica del fabricante exacto y comprobar las uniones con la función de diodos de un multímetro. Los terminales se conectan estrictamente por su función (Emisor a GND para Q1, Emisor a +5V para Q2).
+> **Secuencia Obligatoria de Identificación (6 Pasos):** (1) Registrar el marcaje exacto del componente físico; (2) Identificar fabricante y referencia comercial; (3) Consultar la hoja de datos oficial correspondiente al componente y encapsulado exactos; (4) Confirmar la orientación física de Emisor, Base y Colector según dicho fabricante; (5) Usar el multímetro en modo diodo como comprobación complementaria de las uniones PN (sin asumir una desigualdad universal entre $V_{BE}$ y $V_{BC}$ para distinguir Emisor de Colector); y (6) Registrar el resultado antes de montar o energizar el circuito. Los terminales se conectan estrictamente por su función (Emisor a GND para Q1, Emisor a +5V para Q2).
 
 ---
 

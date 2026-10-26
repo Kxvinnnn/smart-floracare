@@ -45,7 +45,8 @@ enum class FaultReason : uint8_t {
 enum class StopReason : uint8_t {
     NORMAL_TARGET_REACHED,
     MANUAL_BURST_COMPLETE,
-    SAFETY_TIMEOUT,
+    AUTO_MAX_DURATION_REACHED, // Límite operativo de ciclo automático (20 s)
+    SAFETY_TIMEOUT,            // Watchdog físico absoluto e inmutable (25 s)
     WATER_DEPLETED,
     USER_INTERRUPT,
     SENSOR_FAULT
@@ -90,7 +91,7 @@ public:
             activeSource_ = IrrigationSource::NONE;
 
             // Transición a reposo o fallo según la causa
-            if (reason == StopReason::SAFETY_TIMEOUT) {
+            if (reason == StopReason::SAFETY_TIMEOUT || reason == StopReason::AUTO_MAX_DURATION_REACHED) {
                 lastFault_ = FaultReason::MAX_TIMEOUT_EXCEEDED;
                 state_ = ControllerState::FAULT;
             } else if (reason == StopReason::WATER_DEPLETED) {
@@ -193,7 +194,7 @@ public:
                 }
             } else if (activeSource_ == IrrigationSource::AUTO_CYCLE) {
                 if (elapsedMs >= config_.maxAutoDurationMs) {
-                    stop(StopReason::SAFETY_TIMEOUT, nowMs);
+                    stop(StopReason::AUTO_MAX_DURATION_REACHED, nowMs);
                     return false;
                 }
                 // Si el sensor falla durante el riego, detener inmediatamente

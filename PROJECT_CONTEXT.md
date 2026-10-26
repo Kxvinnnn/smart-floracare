@@ -73,13 +73,13 @@ El firmware adopta una **Arquitectura en Capas Desacoplada (Layered Architecture
 - **Microcontrolador:** ESP-WROOM-32 (30 pines, lógica 3.3 V).
 - **Sensor de suelo capacitivo v1.2:** **Obligatoriamente alimentado a 3.3V** (salida analógica $\le 2.9\,\text{V}$ conectada a `GPIO 34` / ADC1_CH6 para proteger el conversor del microcontrolador).
 - **Driver de bomba (Etapa Bipolar No Inversora NPN+PNP de 2 Etapas):**
-  - **Q1 (Transistor NPN - Traslador de Nivel - CRIT-01):**
-    * *Nota Mandatoria de Encapsulado:* Conexiones referenciadas por función lógica (`E`, `B`, `C`), no por número de pin fijo. En variantes TO-92 como `P2N2222A` (onsemi) el orden es C-B-E (pines 1-2-3), mientras que en `PN2222A` o genéricos es E-B-C. Verificación con hoja técnica y multímetro obligatoria antes de soldar.
+  - **Q1 (Transistor NPN - Traslador de Nivel - CRIT-01 / MEN-05):**
+    * *Secuencia Mandatoria de Identificación (6 Pasos):* (1) Registrar marcaje exacto; (2) Identificar fabricante y referencia (`P2N2222A` C-B-E vs `PN2222A` E-B-C); (3) Consultar hoja de datos oficial exacta; (4) Confirmar orientación física por plano del fabricante; (5) Comprobar uniones PN con multímetro en modo diodo como verificación complementaria (sin asumir desigualdad universal entre $V_{BE}$ y $V_{BC}$); y (6) Registrar el resultado antes de montar o energizar.
     * Base: Conectada a `GPIO 18` vía $R_1 = 2.2\,\text{k}\Omega$; pull-down $R_{pd1} = 10\,\text{k}\Omega$ a GND.
     * Emisor: A GND común.
     * Colector: A Base de Q2 vía $R_2 = 2.2\,\text{k}\Omega$.
-  - **Q2 (Transistor PNP - Conmutador de Potencia de Compuerta a +5V - CRIT-01):**
-    * *Nota Mandatoria de Encapsulado:* Conexiones por función lógica (`E`, `B`, `C`). Típicamente E-B-C en 2N3906, sujeto a comprobación física.
+  - **Q2 (Transistor PNP - Conmutador de Potencia de Compuerta a +5V - CRIT-01 / MEN-05):**
+    * *Secuencia Mandatoria de Identificación:* Igual procedimiento de 6 pasos con hoja de datos primaria antes del montaje.
     * Emisor: Al riel de potencia de `+5V`.
     * Base: Conectada al Colector de Q1 vía $R_2 = 2.2\,\text{k}\Omega$; pull-up $R_{pu} = 10\,\text{k}\Omega$ a `+5V`.
     * Colector: Al Gate del MOSFET Q3.
@@ -112,18 +112,19 @@ El firmware adopta una **Arquitectura en Capas Desacoplada (Layered Architecture
 
 ---
 
-## 📊 5. Estado Actual de Git, Ramas, CI y Compilación (OBL-03)
+## 📊 5. Estado Actual de Git, Ramas, CI y Compilación (OBL-03 / CI-01)
 
 - **Rama Base Estable:** `main`
   * **Commit Base de Referencia:** `45fff8516f0996d9008c5fbe73a0fcde5ecbccf9` (`fix(ci): quote test step name to fix YAML syntax error in workflow`)
-  * **Estado de CI en GitHub Actions:** Run ID `40367863193` — **`SUCCESS`** (Completado en 1m 6s el 2026-10-26T17:21:35Z).
+  * **Estado de CI en GitHub Actions (`main`):** Run ID `40367863193` — **`SUCCESS`** (Completado en 1m 6s el 2026-10-26T17:21:35Z).
 - **Rama de Revisión y Auditoría Activa:** `audit/documentation-review`
-  * **Punta Auditada en GitHub:** Commit `bca15cd9a76b83f9f1ea6b8528a92878eb66e2d4` (`docs(audit): reconcile electrical driver, BOM itemization, and bench test protocols`).
-  * **Dictamen de Auditoría Recibido:** 1 Crítico (CRIT-01 pinout Q1), 3 Obligatorios (OBL-01 HTTP ACT-06, OBL-02 osciloscopio ACT-04, OBL-03 sincronización de rama), 3 Menores (MEN-01 umbral compuerta, MEN-02 carga ACT-02, MEN-03 etiqueta REQ-26), 5 Conformes (CONF-01 a CONF-05).
-  * **Estado de CI en rama de auditoría:** No se ejecutan flujos de Actions automáticos en ramas aisladas de revisión sin PR hacia `main`.
-- **Métricas de Compilación PlatformIO (Reproducibles Localmente):**
-  - `nanoatmega328`: Flash: 17,554 B (57.1%), RAM: 614 B (30.0%) — **SUCCESS**
-  - `esp32dev`: Flash: 1,082,115 B (82.6%), RAM: 49,412 B (15.1%) — **SUCCESS**
+  * **Commits Previos Auditados en GitHub:**
+    - `bca15cd9a76b83f9f1ea6b8528a92878eb66e2d4` (Primera auditoría: CRIT-01, OBL-01..03, MEN-01..03).
+    - `7576c0fb10153634004ff62a6c9ab48ecfcb60a5` (Segunda auditoría: OBL-04 separación 20s/25s, CRIT-01/MEN-05 secuencia 6 pasos, MEN-04 medición térmica sin contacto, CI-01).
+  * **Estado de CI en rama de auditoría (CI-01):** Flujo `.github/workflows/ci.yml` actualizado con `branches: [ main, "audit/**" ]` para ejecutar automáticamente las **76 pruebas automatizadas** y la compilación dual (`nanoatmega328` y `esp32dev`) en cada push a `audit/documentation-review`.
+- **Métricas de Compilación PlatformIO:**
+  - `nanoatmega328`: Flash: ~57.2%, RAM: 30.0% — **SUCCESS**
+  - `esp32dev`: Flash: ~82.6%, RAM: 15.1% — **SUCCESS**
 - **Estado de Pruebas Físicas e Integración Eléctrica:**
   - Protocolo ACT-01 a ACT-06 formalizado como `LISTA PARA BANCO`, pero **estrictamente pendiente de ejecución y medición física en silicio**.
   - **Circuito físico:** Completamente desenergizado (0 V).
@@ -131,25 +132,27 @@ El firmware adopta una **Arquitectura en Capas Desacoplada (Layered Architecture
 
 ---
 
-## 🧪 6. Jerarquía y Taxonomía Formal de Pruebas (SW-01)
+## 🧪 6. Jerarquía y Taxonomía Formal de Pruebas (SW-01 / OBL-04)
 
-La suite del repositorio contiene un total de **75 pruebas automatizadas**, clasificadas formalmente en:
+La suite del repositorio contiene un total de **76 pruebas automatizadas**, clasificadas formalmente en:
 
 ```text
 +-------------------------------------------------------------------------------------------------+
 |                        TAXONOMÍA DE PRUEBAS DE SMART FLORACARE v1.2.1                           |
 +-------------------------------------------------------------------------------------------------+
-| 1. Pruebas de Dominio Lógico (Nivel A): 30 pruebas                                              |
+| 1. Pruebas de Dominio Lógico (Nivel A): 31 pruebas                                              |
 |    - Archivo: tests/test_irrigation_suite.py                                                    |
-|    - Valida: FSM de IrrigationController, antirrebote, watchdog (25s), cooldown (5s),          |
-|      desbordamiento de millis(), interpolación de calibración y corte por falta de agua.        |
+|    - Valida: FSM de IrrigationController, antirrebote, límite auto 20s (test_16 con             |
+|      AUTO_MAX_DURATION_REACHED), watchdog aislado 25s (test_31 con SAFETY_TIMEOUT),             |
+|      cooldown (5s), desbordamiento de millis(), calibración y corte por falta de agua.          |
 |    - Naturaleza: Código Python puro que emula las estructuras de dominio C++.                   |
 |    - Limitación: NO demuestra que el hardware físico funcione.                                  |
 +-------------------------------------------------------------------------------------------------+
 | 2. Pruebas de Análisis Estático de Firmware (Nivel B1): 12 pruebas                              |
 |    - Archivo: tests/test_firmware_security.py                                                   |
 |    - Valida: Cero credenciales hardcodeadas, recolección de cabeceras HTTP, polaridad           |
-|      INPUT_PULLUP de boya, presencia de códigos 4xx/5xx y ausencia de bucles infinitos.         |
+|      INPUT_PULLUP de boya, presencia de códigos 4xx/5xx, StopReasons diferenciados y            |
+|      ausencia de bucles infinitos.                                                              |
 |    - Naturaleza: Expresiones regulares e inspección de texto sobre archivos C++.                |
 |    - Limitación: NO valida el comportamiento en tiempo de ejecución en silicio.                 |
 +-------------------------------------------------------------------------------------------------+
@@ -179,11 +182,11 @@ La suite del repositorio contiene un total de **75 pruebas automatizadas**, clas
 | Código | Objetivo Técnico | Criterio de Aceptación Cuantitativo | Instrumento | Estado Actual |
 | :---: | :--- | :--- | :--- | :---: |
 | **ACT-01** | Estado seguro del driver en boot/reset | $V_{GS} \le 0.10\,\text{V}$ en reposo, boot y reset; $I_{leak} < 10\,\mu\text{A}$ | DMM + Osciloscopio | `LISTA PARA BANCO` |
-| **ACT-02** | Excitación de compuerta a 3.3V | $V_{GS} \ge 4.50\,\text{V}$ bajo carga simulada ($15\,\Omega$) | DMM calibrado | `LISTA PARA BANCO` |
+| **ACT-02** | Excitación de compuerta a 3.3V | $V_{GS} \ge 4.50\,\text{V}$ bajo carga ($15\,\Omega$, $5\,\text{W}$); $T_{\text{res}} \le 60^\circ\text{C}$ sin contacto | DMM + Termocupla/IR | `LISTA PARA BANCO` |
 | **ACT-03** | Conmutación real y estabilidad térmica | $V_{DS} \le 50\,\text{mV}$, $\Delta T \le 15^\circ\text{C}$ tras 20s en agua | DMM + Termómetro IR | `LISTA PARA BANCO` |
-| **ACT-04** | Supresión de transitorios inductivos | $V_{\text{peak}} \le 6.0\,\text{V}$ en Drain con diodo 1N5819 | Osciloscopio $\ge 20\,\text{MHz}$ | `LISTA PARA BANCO` |
-| **ACT-05** | Enclavamiento fail-safe de boya | Corte en $\le 50\,\text{ms}$, entrada en $0\,\text{V}$ ante desconexión | DMM + Depósito | `LISTA PARA BANCO` |
-| **ACT-06** | Watchdog (25s) y Servidor HTTP Real | Watchdog en $25\pm 0.5\,\text{s}$; códigos 4xx/303 en silicio; $\Delta Heap \le 200\,\text{B}$ | Cronómetro + cURL LAN | `LISTA PARA BANCO` |
+| **ACT-04** | Supresión de transitorios inductivos | $V_{\text{peak}} \le 6.0\,\text{V}$ en Drain con diodo 1N5819 (trigger $+4.50\,\text{V}$) | Osciloscopio $\ge 20\,\text{MHz}$ | `LISTA PARA BANCO` |
+| **ACT-05** | Enclavamiento fail-safe de boya | Corte en $\le 50\,\text{ms}$, $V_{GS} \le 0.10\,\text{V}$ ante fallo/desconexión | DMM + Depósito | `LISTA PARA BANCO` |
+| **ACT-06** | Límites 20s (A1), Watchdog 25s (A2) y HTTP (B) | A1: $20\pm 0.5\,\text{s}$ (`AUTO_MAX_DURATION_REACHED`); A2: $25\pm 0.5\,\text{s}$ (`SAFETY_TIMEOUT`); B: 7 HTTP y $\Delta Heap \le 200\,\text{B}$ | Cronómetro + cURL LAN | `LISTA PARA BANCO` |
 
 > [!CAUTION]
 > **Prohibición Estricta de Operación Desatendida:**
@@ -193,8 +196,8 @@ La suite del repositorio contiene un total de **75 pruebas automatizadas**, clas
 
 ## 📋 8. Guía de Onboarding para la Siguiente IA
 Si eres un agente de IA que retoma este proyecto:
-1. **Comprueba el estado de Git:** Asegúrate de estar en `main` y verifica `git status`.
-2. **No confundas pruebas de software con validación física:** Las 75 pruebas automatizadas demuestran robustez lógica y sintáctica, pero **las pruebas físicas ACT-01 a ACT-06 siguen pendientes de ejecución instrumental**.
+1. **Comprueba el estado de Git:** Verifica la rama activa (`main` o `audit/documentation-review`) y ejecuta `git status`.
+2. **No confundas pruebas de software con validación física:** Las 76 pruebas automatizadas demuestran robustez lógica y sintáctica, pero **las pruebas físicas ACT-01 a ACT-06 siguen pendientes de ejecución instrumental**.
 3. **Ten en cuenta las restricciones de diseño:**
    - La bomba es de 5 V (JT-DC3W). No hay electroválvulas de 12 V.
    - El sensor capacitivo en ESP32 DEBE ir a 3.3V (pin 34).

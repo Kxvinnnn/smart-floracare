@@ -42,7 +42,11 @@ static constexpr CalibrationProfile NANO_CALIBRATION = {
 
 // --- CONFIGURACIÓN DEL CONTROLADOR DE RIEGO UNIFICADO ---
 static constexpr ControllerConfig NANO_IRRIGATION_CFG = {
+#if defined(FLORACARE_BENCH_TEST_WATCHDOG_25S)
+    30000, // MODO ENSAYO AISLADO ACT-06.A2: Eleva límite auto para alcanzar el Watchdog de 25s
+#else
     20000, // maxAutoDurationMs: 20 segundos máx (Unificado con ESP32)
+#endif
     3000,  // manualBurstDurationMs: 3 segundos
     25000, // maxSafetyWatchdogMs: 25 segundos absoluto (Perro guardián de seguridad independiente)
     5000,  // cooldownPeriodMs: 5 segundos de enfriamiento entre riegos
@@ -231,6 +235,11 @@ void loop() {
             msg = F("REGANDO...");
         } else if (sensorStatus != SensorHealth::OK) {
             msg = F("SENSOR ERR");
+        } else if (controller.getState() == ControllerState::FAULT &&
+                   controller.getLastFault() == FaultReason::MAX_TIMEOUT_EXCEEDED) {
+            msg = (controller.getLastStopReason() == StopReason::SAFETY_TIMEOUT)
+                  ? F("WDT 25S ERR")
+                  : F("TIMEOUT 20S");
         } else if (currentMoisturePct <= NANO_IRRIGATION_CFG.autoStartMoisturePct) {
             msg = F("SUELO SECO");
         }

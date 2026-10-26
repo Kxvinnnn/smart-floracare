@@ -69,7 +69,11 @@ static constexpr CalibrationProfile ESP32_CALIBRATION = {
 
 // --- CONFIGURACIÓN DEL CONTROLADOR DE RIEGO ---
 static constexpr ControllerConfig IRRIGATION_CFG = {
+#if defined(FLORACARE_BENCH_TEST_WATCHDOG_25S)
+    30000, // MODO ENSAYO AISLADO ACT-06.A2: Eleva límite auto para alcanzar el Watchdog de 25s
+#else
     20000, // maxAutoDurationMs: 20 segundos
+#endif
     3000,  // manualBurstDurationMs: 3 segundos
     25000, // maxSafetyWatchdogMs: 25 segundos absoluto
     5000,  // cooldownPeriodMs: 5 segundos de enfriamiento entre ciclos
@@ -598,8 +602,17 @@ void loop() {
     }
 
     // 4. ACTUALIZACIÓN DEL CONTROLADOR CENTRALIZADO DE RIEGO
+    const bool wasWatering = controller.isPumpActive();
     const bool pumpShouldRun = controller.update(nowMs, waterLevelOk, sensorStatus, currentMoisturePct);
     digitalWrite(PIN_DRIVER_BOMBA, pumpShouldRun ? HIGH : LOW);
+
+    if (wasWatering && !pumpShouldRun && controller.getState() == ControllerState::FAULT) {
+        if (controller.getLastStopReason() == StopReason::SAFETY_TIMEOUT) {
+            Serial.println(F("[FAULT] SAFETY_TIMEOUT_WATCHDOG (25000 ms) -> MAX_TIMEOUT_EXCEEDED"));
+        } else if (controller.getLastStopReason() == StopReason::AUTO_MAX_DURATION_REACHED) {
+            Serial.println(F("[FAULT] AUTO_MAX_DURATION_REACHED (20000 ms) -> MAX_TIMEOUT_EXCEEDED"));
+        }
+    }
 
     // 5. GESTIÓN NO BLOQUEANTE DEL BUZZER EN ESTADO DE ALERTA
     if (!waterLevelOk) {
@@ -619,6 +632,11 @@ void loop() {
             msg = "REGANDO...";
         } else if (sensorStatus != SensorHealth::OK) {
             msg = "SENSOR ERR";
+        } else if (controller.getState() == ControllerState::FAULT &&
+                   controller.getLastFault() == FaultReason::MAX_TIMEOUT_EXCEEDED) {
+            msg = (controller.getLastStopReason() == StopReason::SAFETY_TIMEOUT)
+                  ? "WDT 25S ERR"
+                  : "TIMEOUT 20S";
         } else if (currentMoisturePct <= IRRIGATION_CFG.autoStartMoisturePct) {
             msg = "SUELO SECO";
         }

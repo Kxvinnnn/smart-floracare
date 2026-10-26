@@ -209,7 +209,7 @@ En el ESP32 (lógica de 3.3V), la compuerta del IRLZ44N **no debe conectarse dir
    - La indicación de que N6 mide $+5.0\,\text{V}$ en reposo asume que existe una carga eléctrica conectada entre el riel de $+5.0\,\text{V}$ y el terminal Drain (ya sea la rama de prueba LED + resistencia de $330\,\Omega$, o el bobinado de la bomba). La resistencia interna de dicha carga actúa como pull-up natural.
    - Si no hay ninguna carga conectada entre +5V y N6 (circuito abierto), el nodo N6 se encuentra en alta impedancia (flotante), y la lectura con un multímetro de alta impedancia de entrada no reflejará $+5.0\,\text{V}$ de manera determinista.
 
-#### Identificación Funcional y Variantes de Encapsulado (CRIT-01):
+#### Identificación Funcional y Variantes de Encapsulado (CRIT-01 / MEN-05):
 > [!CAUTION] Alerta Crítica de Fabricante: Ambigüedad en el Pinout de Q1 (2N2222A / PN2222A / P2N2222A)
 > **No existe un orden de pines numérico universal para transistores marcados como 2N2222 en encapsulado plástico TO-92.**
 > - **Variante P2N2222A (onsemi / Motorola):** Con la cara plana hacia el observador y las patillas hacia abajo, el orden de pines es **Pin 1 = Colector (C), Pin 2 = Base (B), Pin 3 = Emisor (E)**.
@@ -217,7 +217,13 @@ En el ESP32 (lógica de 3.3V), la compuerta del IRLZ44N **no debe conectarse dir
 > - **Variante 2N2222 original (Cápsula metálica TO-18):** Pin 1 = Emisor, Pin 2 = Base, Pin 3 = Colector (unido eléctricamente a la carcasa).
 > - **Transistor Q2 (2N3906 PNP TO-92):** Habitualmente Pin 1 = Emisor (E), Pin 2 = Base (B), Pin 3 = Colector (C), pero igualmente sujeto a variación según el fabricante.
 > 
-> **Regla Mandatoria de Montaje (Opción B):** Todos los esquemas y conexiones se definen exclusivamente por la **función terminal** (Emisor, Base, Colector). Los números de pin quedan **provisionales y pendientes de confirmación** hasta que el ensamblador verifique el marcaje exacto del componente adquirido, consulte su hoja de datos oficial y compruebe las uniones con la función de diodo del multímetro ($V_{BE} \approx 0.65\text{--}0.70\,\text{V}$, $V_{BC} \approx 0.65\text{--}0.70\,\text{V}$ con $V_{BE} > V_{BC}$).
+> **Procedimiento Obligatorio de Identificación Pre-Montaje (en este orden estricto):**
+> 1. **Registrar el marcaje exacto:** Anotar la serigrafía completa impresa en el cuerpo del componente físico recibido.
+> 2. **Determinar fabricante y referencia:** Identificar el fabricante y la variante comercial exacta (ej. `P2N2222A` frente a `PN2222A`).
+> 3. **Consultar la hoja de datos oficial (*datasheet*):** Obtener el documento técnico correspondiente exactamente a esa referencia y encapsulado.
+> 4. **Confirmar la orientación física:** Determinar la posición de Emisor, Base y Colector a partir del plano mecánico oficial de dicho fabricante.
+> 5. **Comprobación complementaria con multímetro:** Utilizar el modo de prueba de diodos para verificar la integridad de las uniones PN y confirmar la terminal de Base ($V_{BE} \approx 0.60\text{--}0.75\,\text{V}$ y $V_{BC} \approx 0.60\text{--}0.75\,\text{V}$ en directa; circuito abierto `OL` en inversa y entre C-E). *Nota técnica (MEN-05): No debe utilizarse una desigualdad estricta entre $V_{BE}$ y $V_{BC}$ como criterio único para distinguir Emisor de Colector, dado que su diferencia depende del lote, corriente de prueba y temperatura; la referencia primaria para asignar E y C es siempre la hoja de datos del componente exacto.*
+> 6. **Registro previo a energización:** Documentar el pinout verificado en la hoja de registro de laboratorio antes de insertar, soldar o alimentar el circuito.
 
 - **Q1 (Transistor NPN, e.g. 2N2222A / PN2222A / P2N2222A - TO-92):**
   * `Emisor (E)`: Conectado firmemente a GND común.

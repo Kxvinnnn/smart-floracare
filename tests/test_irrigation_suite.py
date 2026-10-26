@@ -73,10 +73,11 @@ class FaultReason(Enum):
 class StopReason(Enum):
     NORMAL_TARGET_REACHED = 0
     MANUAL_BURST_COMPLETE = 1
-    SAFETY_TIMEOUT = 2
-    WATER_DEPLETED = 3
-    USER_INTERRUPT = 4
-    SENSOR_FAULT = 5
+    AUTO_MAX_DURATION_REACHED = 2
+    SAFETY_TIMEOUT = 3
+    WATER_DEPLETED = 4
+    USER_INTERRUPT = 5
+    SENSOR_FAULT = 6
 
 
 class SensorHealth(Enum):
@@ -151,7 +152,7 @@ class MockIrrigationController:
             self.last_stop_ms = now_ms
             self.active_source = IrrigationSource.NONE
 
-            if reason == StopReason.SAFETY_TIMEOUT:
+            if reason in (StopReason.SAFETY_TIMEOUT, StopReason.AUTO_MAX_DURATION_REACHED):
                 self.last_fault = FaultReason.MAX_TIMEOUT_EXCEEDED
                 self.state = ControllerState.FAULT
             elif reason == StopReason.WATER_DEPLETED:
@@ -208,7 +209,7 @@ class MockIrrigationController:
                     return False
             elif self.active_source == IrrigationSource.AUTO_CYCLE:
                 if elapsed >= self.max_auto_ms:
-                    self.stop(StopReason.SAFETY_TIMEOUT, now_ms)
+                    self.stop(StopReason.AUTO_MAX_DURATION_REACHED, now_ms)
                     return False
                 if sensor_health != SensorHealth.OK:
                     self.stop(StopReason.SENSOR_FAULT, now_ms)
@@ -368,14 +369,17 @@ class TestSmartFloraCareComprehensive(unittest.TestCase):
         second_req = self.controller.request_watering(IrrigationSource.REMOTE_WEB, 1500, True, SensorHealth.OK, 50)
         self.assertFalse(second_req)
 
-    # 16. Tiempo máximo de riego y watchdog absoluto anti-inundación
+    # 16. Límite operativo de duración de riego automático (20s en producción)
     def test_16_max_watering_duration_watchdog(self):
         self.controller.request_watering(IrrigationSource.AUTO_CYCLE, 1000, True, SensorHealth.OK, 10)
-        # Simular avance del tiempo hasta superar max_auto_ms (20s)
+        # Antes de 20s (19999 ms), sigue regando
+        self.assertTrue(self.controller.update(1000 + 19999, True, SensorHealth.OK, 20))
+        # Al alcanzar max_auto_ms (20000 ms), corta por límite automático identificable
         pump_state = self.controller.update(1000 + 20000, True, SensorHealth.OK, 20)
         self.assertFalse(pump_state)
         self.assertEqual(self.controller.state, ControllerState.FAULT)
         self.assertEqual(self.controller.last_fault, FaultReason.MAX_TIMEOUT_EXCEEDED)
+        self.assertEqual(self.controller.last_stop_reason, StopReason.AUTO_MAX_DURATION_REACHED)
 
     # 17. Fin normal del riego por meta de humedad alcanzada
     def test_17_normal_watering_completion(self):
@@ -526,6 +530,21 @@ class TestSmartFloraCareComprehensive(unittest.TestCase):
         self.controller.request_watering(IrrigationSource.AUTO_CYCLE, 25000, True, SensorHealth.OK, 15)
         self.controller.update(25000 + 25001, True, SensorHealth.OK, 15)
         self.assertFalse(self.controller.is_pump_active())
+
+    # 31. Watchdog físico absoluto de 25s aislado del límite automático de 20s (OBL-04)
+    def test_31_absolute_safety_watchdog_25s_isolated(self):
+        # Configuración aislada de prueba donde max_auto_ms (30s) supera el techo del watchdog (25s)
+        isolated_ctrl = MockIrrigationController(max_auto_ms=30000, manual_ms=3000, watchdog_ms=25000)
+        self.assertTrue(isolated_ctrl.request_watering(IrrigationSource.AUTO_CYCLE, 1000, True, SensorHealth.OK, 10))
+        # A los 20.000 ms (límite normal de producción) y 24.999 ms sigue regando en modo de prueba aislado
+        self.assertTrue(isolated_ctrl.update(1000 + 20000, True, SensorHealth.OK, 15))
+        self.assertTrue(isolated_ctrl.update(1000 + 24999, True, SensorHealth.OK, 15))
+        # A los 25.000 ms exactos actúa el techo inmutable maxSafetyWatchdogMs con causa SAFETY_TIMEOUT
+        pump_state = isolated_ctrl.update(1000 + 25000, True, SensorHealth.OK, 15)
+        self.assertFalse(pump_state)
+        self.assertEqual(isolated_ctrl.state, ControllerState.FAULT)
+        self.assertEqual(isolated_ctrl.last_fault, FaultReason.MAX_TIMEOUT_EXCEEDED)
+        self.assertEqual(isolated_ctrl.last_stop_reason, StopReason.SAFETY_TIMEOUT)
 
 
 if __name__ == "__main__":
