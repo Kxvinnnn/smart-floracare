@@ -51,7 +51,7 @@ Este documento proporciona los esquemas detallados de cableado pin a pin para la
 | | Salida a Gate| Colector Q2 | Conectado a Gate del IRLZ44N con pull-down 10 kΩ a GND (conmuta a ~4.85V) |
 | | Source | GND | Tierra común unificada |
 | | Drain | Bomba (-) | Retorno conmutado del motor a tierra |
-| **Driver de Bomba (Alternativas Comerciales Verificadas)** | TRIG / IN | GPIO 18 | Módulo HW-517 (Dual AOD4184A) o Módulo Relé 5V en HIGH Trigger (condicionados a ensayo de banco) |
+| **Driver de Bomba (Alternativa Comercial Verificada)** | TRIG / IN | GPIO 18 | Módulo MOSFET HW-517 (Dual AOD4184A con ensayo previo en banco de $V_{DS} \le 50\,\text{mV}$). Relés descartados. |
 | **Bomba Sumergible 5V** | Positivo (+) | `+5V` (Fuente externa) | Conexión directa a fuente 5V 2A/3A |
 | | Negativo (-) | `Drain` (MOSFET) | Conmutado |
 | **Diodo Flyback (1N5819 / 1N4007)** | Cátodo (Banda) | Bomba (+) / `+5V` | En antiparalelo directo a bornes del motor |
@@ -268,8 +268,8 @@ En lugar de transistores discretos, puede emplearse una compuerta buffer no inve
 - Salida CMOS rail-to-rail a 5.0V directos hacia la compuerta del IRLZ44N.
 - Con pull-down de 10 kΩ en la entrada, la compuerta permanece rígidamente en 0.0V durante el boot.
 
-##### 4. Criterio de Selección para Módulos Comerciales:
-- **Módulo Relé 5V (SRD-05VDC-SL-C):** Si se utiliza un módulo relé, el jumper de configuración debe situarse obligatoriamente en **HIGH Level Trigger**, y los cables del motor deben conectarse entre `COM` (Común) y `NO` (Normalmente Abierto). **Bajo ninguna circunstancia configurar en Low Level Trigger**, ya que encendería la bomba durante el reset del ESP32. Si el módulo relé no conmuta con 3.3V en High Level Trigger debido a la caída de tensión del LED del optoacoplador, debe descartarse el módulo relé en favor del driver discreto NPN+PNP.
+##### 4. Criterio de Selección y Descarte de Módulos Comerciales:
+- **Módulos de Relé Electromecánicos (DESCARTADOS OFICIALMENTE):** Quedan descartados como opción recomendada para el ESP32. Un módulo con lógica LOW-trigger encendería la bomba involuntariamente durante el reinicio del ESP32 (estado High-Z/LOW). Aunque un módulo cuente con jumper HIGH-trigger, la caída de tensión en el optoacoplador y LED interno diseñado para 5V suele provocar conmutaciones erráticas con señales lógicas de 3.3V, y no ofrece garantía fail-safe frente a transitorios de alimentación.
 - **Módulo MOSFET HW-517 / XY-MOS (Dual AOD4184A):** Este módulo conecta la señal de entrada directamente a las compuertas de dos MOSFETs en paralelo con resistencia pull-down a GND (activo en alto). Aunque comercialmente se especifica desde 3.3V, debido a la dispersión de $V_{GS(th)}$ entre lotes, el reparto de corriente no es perfectamente simétrico. Por tanto, antes de validar su uso definitivo en el montaje, debe verificarse en banco que a 3.3V la caída total $V_{DS} \le 50\,\text{mV}$ bajo el consumo real de la bomba.
 
 ### 4.2 Selección del Diodo Flyback: Recirculación Inductiva

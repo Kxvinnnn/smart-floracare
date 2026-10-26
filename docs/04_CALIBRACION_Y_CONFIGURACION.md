@@ -61,7 +61,7 @@ outPercent = static_cast<uint8_t>(constrain(percent, 0, 100));
 
 ---
 
-## 4. Umbrales Recomendados según la Planta de tu Abuela
+## 4. Umbrales Recomendados según la Planta y Perfiles Activos en Firmware
 
 En el video de referencia se utiliza un lirio de la paz (*Spathiphyllum* o cuna de Moisés), el cual requiere bastante humedad. Sin embargo, cada tipo de planta tiene requerimientos distintos:
 
@@ -71,6 +71,16 @@ En el video de referencia se utiliza un lirio de la paz (*Spathiphyllum* o cuna 
 | **Plantas de interior estándar (Ficus, Monsteras, Drácenas)** | **20%** | **60%** | Media |
 | **Suculentas y Cactus** | **10%** | **35%** | Muy baja (riegos espaciados) |
 | **Huerto / Hierbas aromáticas (Albahaca, Menta, Perejil)** | **30%** | **75%** | Alta |
+
+### 4.1 Configuración Predeterminada Activa en Código
+
+Para evitar confusiones entre recomendaciones agronómicas y valores predeterminados en el firmware:
+- **Firmware ESP32 (`regador_esp32.cpp`):** Viene precargado con el **Perfil Tropical** (`autoStartMoisturePct = 25%`, `autoStopMoisturePct = 70%`), ideal para la maceta de Lirio de la Paz (*Spathiphyllum*) de la abuela.
+- **Firmware Arduino Nano (`regador_nano_pro.cpp`):** Viene precargado con el **Perfil Estándar de Saturación Profunda** (`autoStartMoisturePct = 20%`, `autoStopMoisturePct = 70%`), asegurando menor frecuencia de arranque y mayor penetración hídrica en sustratos densos.
+- **Temporizaciones de seguridad (Ambos firmwares):** Duración máxima por ciclo de riego automático = `20 s`; Watchdog lógico independiente = `25 s`; Tiempo de cooldown posterior al riego = `5 s`.
+- **Micropausas de muestreo ADC (16x Oversampling):** 
+  - Arduino Nano: $250\,\mu\text{s}$ por muestra (`delayMicroseconds(250)`), acumulando $4.0\,\text{ms}$ por ciclo de lectura.
+  - ESP32: $200\,\mu\text{s}$ por muestra (`delayMicroseconds(200)`), acumulando $3.2\,\text{ms}$ por ciclo de lectura. Ambas pausas son transparentes para la FSM y no bloquean el lazo periódico.
 
 ---
 

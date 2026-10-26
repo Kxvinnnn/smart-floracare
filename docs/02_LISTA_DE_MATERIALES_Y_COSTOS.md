@@ -58,7 +58,7 @@ Estos componentes conforman la planta física de riego e impulsión, compartida 
 
 | ID | Componente | Especificación Técnica Verificada | Cant. | Proveedor Sugerido | Precio Est. (COP) |
 | :--- | :--- | :--- | :---: | :--- | :---: |
-| **PMP-01** | **Microbomba Sumergible DC** | Modelo JT-DC3W (3.5V - 5V DC), caudal 80-120 L/h, consumo 200-350 mA | 1 | Robótica / Acuarios | \$8,500 |
+| **PMP-01** | **Microbomba Sumergible DC** | Modelo JT-DC3W (3.5V - 5V DC), caudal 80-120 L/h, consumo nominal 200-350 mA ($I_{stall} \approx 0.8\,\text{A}-1.2\,\text{A}$) | 1 | Robótica / Acuarios | \$8,500 |
 | **HOS-01** | **Manguera Flexible Transparente** | Grado alimenticio (silicona o PVC atóxico), diámetro interno 6 mm o 7 mm | 1 m | Ferreterías / Acuarios | \$3,000 |
 | **PWR-SRC** | **Fuente Regulada 5V DC (2A a 3A)** | Adaptador de pared 5V DC estabilizado con conector Jack DC o terminales | 1 | Electrónica / Hogar | \$16,000 |
 | **RES-TNK** | **Depósito de Agua Estable** | Contenedor plástico hermético reciclado con tapa (1.5 a 3 Litros) | 1 | Hogar / Bazar | \$0 |
@@ -87,11 +87,12 @@ Estos componentes conforman la planta física de riego e impulsión, compartida 
    - **IRLZ44N Directo:** No posee especificación garantizada de $R_{DS(on)}$ para $V_{GS} \le 3.3\,\text{V}$ en la tabla oficial de Vishay/Infineon.
    - **Pre-Driver NPN Simple Inversor:** **PROHIBIDO** porque encendería la bomba en el arranque cuando el GPIO está en LOW o High-Z.
    - **Opción Oficial y Recomendada en Taller:** **Driver No Inversor Bipolar de 2 Etapas (NPN 2N2222A + PNP 2N3906)** excitando la compuerta del IRLZ44N a +4.85V plenos, o **Buffer Lógico TTL 74AHCT125 / 74HCT14**, garantizando lógica activa en alto (`HIGH = ON`, `LOW = OFF`) y apagado estricto durante el arranque y reinicio.
-   - **Alternativa Comercial:** Módulo HW-517 (Dual AOD4184A) con verificación previa en banco de $V_{DS} \le 50\,\text{mV}$ bajo carga real. Si se opta por un Módulo Relé 5V, este debe configurarse obligatoriamente con disparo en alto (**High Level Trigger**) y comprobarse que conmute de forma fiable con 3.3V.
+   - **Alternativa Comercial Aceptable:** Módulo MOSFET HW-517 (Dual AOD4184A) con verificación previa en banco de $V_{DS} \le 50\,\text{mV}$ bajo carga real.
+   - **Módulos de Relé Electromecánicos: DESCARTADOS OFICIALMENTE.** Los relés Low-Trigger quedan prohibidos por violar el principio fail-safe (arranque accidental durante el reset). Los módulos High-Trigger presentan problemas frecuentes de conmutación marginal con los 3.3V del ESP32 debido a la caída de tensión del optoacoplador interno de 5V, y no garantizan estabilidad transitoria en el encendido.
 2. **Alimentación del Sensor Capacitivo de Suelo:**
    - En **Arduino Nano**: Alimentado a 5.0V. Su salida entrega entre ~2.4V (agua) y ~4.8V (aire), operando dentro del rango del ADC de 10 bits.
    - En **ESP32**: **Obligatoriamente alimentado a 3.3V**. Conectarlo a 5V generaría tensiones superiores a los 3.3V tolerados por el `GPIO 34`, dañando de forma permanente el conversor ADC del ESP32.
 3. **Diodo Flyback de Conmutación:**
-   - Debe instalarse un **1N5819 Schottky** ($1\,\text{A}, 40\,\text{V}$, conmutación $<10\,\text{ns}$) o alternativamente un **1N4007** en antiparalelo directo con los terminales del motor. Proporciona una ruta de recirculación para la corriente inductiva transitoria; su eficacia contra reinicios y ruidos electromagnéticos debe confirmarse en el montaje real.
+   - Debe instalarse un **1N5819 Schottky** ($1\,\text{A}$ continuo, $40\,\text{V}$, sobrecorriente no repetitiva $I_{FSM} = 25\,\text{A}$, conmutación $<10\,\text{ns}$) o alternativamente un **1N4007** en antiparalelo directo con los terminales del motor. Cubre holgadamente tanto la corriente de régimen (200–350 mA) como la corriente de arranque/bloqueo ($I_{stall} \approx 0.8\,\text{A}-1.2\,\text{A}$), absorbiendo de forma segura el transitorio inductivo. Su eficacia contra reinicios y ruidos electromagnéticos debe confirmarse en el montaje real.
 4. **Distribución de Potencia:**
    - La bomba toma su corriente en paralelo directamente de la fuente externa de 5V (2A–3A). **Bajo ninguna circunstancia debe alimentarse el motor desde los pines 5V o 3V3 de la placa de desarrollo**.
