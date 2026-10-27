@@ -106,23 +106,82 @@ Se ha recuperado el estado fidedigno del repositorio local en `C:\Users\kevincip
 
 ```
 ================================================================================
-FICHA TÉCNICA: ACT-01.1 — CORTE ESTÁTICO EN REPOSO, RESET Y CABLE SUELTO
+FICHA TÉCNICA: ACT-01.1 — CORTE ESTÁTICO EN REPOSO, RESET Y ENTRADA AISLADA
 ================================================================================
-1. Objetivo: Verificar que la compuerta del MOSFET permanece en corte estricto
-   (V_GS <= 0.10 V) en reposo, bootloader, reset físico y entrada desconectada.
-2. Estado Previo: Montaje completo sin bomba (sustituida por LED + 330 ohm).
-3. Instrumentación: DMM calibrado (resolución <= 1 mV DC). Registrar marca y modelo.
-4. Conexiones:
-   - Sonda roja del DMM: Pin 1 (Gate) del IRLZ44N (Nodo N5).
-   - Sonda negra del DMM: Pin 3 (Source) del IRLZ44N (GND común).
-5. Procedimiento: Medir V_GS en 4 escenarios:
-   a) Fuente 5V ON, microcontrolador apagado/desconectado.
-   b) Microcontrolador energizado, durante los primeros 500 ms de arranque.
-   c) Botón RESET/EN presionado y mantenido continuamente.
-   d) Cable de señal desconectado de GPIO 18 (ESP32) o D3 (Nano).
-6. Criterio de Aceptación: V_GS <= 0.10 V en los 4 casos y LED testigo totalmente apagado.
-7. Condición de Aborto: Si V_GS > 0.20 V, apagar fuente; revisar R_pd y pull-down.
-8. Dependencias: Ninguna (primer ensayo obligatorio antes de conectar cargas).
+1. Objetivo: Verificar que la compuerta del MOSFET IRLZ44N permanece en corte
+   estricto mediante la medición de la tensión compuerta-fuente (V_GS) bajo
+   condiciones estáticas seguras de alimentación, reposo, reset y entrada aislada.
+   > Nota de Cobertura Dinámica: La medición estática con DMM en este ensayo no
+   > caracteriza transitorios rápidos de arranque (t <= 500 ms) ni rebotes en el pin
+   > de reset. Dicha verificación es obligatoria y queda estrictamente asignada a la
+   > captura oscilográfica en banco definida en ACT-01.2.
+2. Estado Previo y Comprobación en Frío (Mandatoria):
+   - Montaje completo en protoboard/placa según diagrama oficial.
+   - Bomba sumergible estrictamente desconectada del circuito.
+   - Carga de simulación conectada entre el riel de +5V y el Drenador (Drain, Pin 2) de Q3:
+     Ánodo del LED testigo a +5V a través de R_limit = 330 ohm (1/4 W); Cátodo del LED
+     conectado directamente a Pin 2 (Drain) de Q3; Pin 3 (Source) a GND común.
+   - Verificación previa sin alimentación: Con la placa totalmente desenergizada
+     (desconectada de USB y de toda fuente externa), medir la resistencia entre el
+     pin EN y GND. Registrar la resistencia de las puntas del DMM (R_puntas) y compensarla.
+     Al presionar y retener el pulsador físico EN, la resistencia neta (R_medida - R_puntas)
+     debe ser estrictamente inferior a 1.0 ohm como criterio interno de continuidad mecánica.
+     Si R_neta >= 1.0 ohm, suspender la energización hasta verificar pulsador y pistas.
+     (Esta prueba valida continuidad de contacto, no la función integral de reset del SoC).
+3. Instrumentación Requerida:
+   - Multímetro digital (DMM) de alta resolución (mínimo 3½ dígitos, resolución delta <= 1 mV DC).
+   - Documentar modelo del DMM, rango utilizado y el límite de error instrumental (a_inst)
+     según el manual del fabricante para dicho rango: a_inst = (%_lectura * V_GS_prom) + (N_cuentas * delta).
+4. Puntos de Conexión Instrumental:
+   - Sonda HI (roja): Terminal de Compuerta (Gate, Pin 1) de Q3 (Nodo N5).
+   - Sonda LO (negra): Terminal de Fuente (Source, Pin 3) de Q3 (GND común).
+5. Procedimiento de Medición (Escenarios Estáticos Seguros):
+   - Escenario A (Entrada de señal físicamente aislada): Riel 5V energizado,
+     extremo de entrada de R1 desconectado de GPIO 18 y al aire (circuito abierto).
+     Registrar n = 5 lecturas de V_GS.
+   - Escenario B (Régimen estacionario en reposo): ESP32 energizado a 3.3V y ejecutando
+     firmware, transcurrida la inicialización de setup(), con GPIO 18 fijado en LOW.
+     Riel 5V energizado. Registrar n = 5 lecturas de V_GS.
+   - Escenario C (Reinicio forzado por hardware): Con riel de 5V y ESP32 energizados,
+     pulsador EN presionado y retenido continuamente hacia GND. Registrar n = 5 lecturas de V_GS.
+   > Suspensión Preventiva de la Condición MCU Apagado con Señal Conectada: La energización
+   > del riel de 5V con el ESP32 desenergizado y GPIO 18 cableado a R1 queda formalmente
+   > suspendida de ejecución directa. No se autoriza someter el SoC a esta condición
+   > hasta completar un modelado exhaustivo de inyección parásita y retorno a tierra.
+6. Formulación Metrológica e Incertidumbre Expandida (GUM):
+   - El mensurando en cada escenario se estima mediante el promedio: V_GS_prom = (1/n) * sum(V_GS_i) [n = 5].
+   - Componentes de incertidumbre estándar bajo hipótesis de independencia:
+       u_inst = a_inst / sqrt(3)      (distribución rectangular del límite del DMM; si a_inst
+                                      ya incluye el término de cuentas, no debe adicionarse
+                                      un término u_res independiente para evitar doble cómputo)
+       u_rep = s / sqrt(5)           (incertidumbre estándar del promedio, donde s es la
+                                      desviación estándar muestral de las 5 lecturas)
+       u_c(V_GS_prom) = sqrt(u_inst^2 + u_rep^2)
+   - Determinación del Factor de Cobertura y U_95:
+     * Si u_rep << u_inst, se adopta factor k = 2 como aproximación nominal (U_95 = 2 * u_c).
+     * Si u_rep es significativa frente a u_inst, asumiendo nu_inst -> inf, los grados de libertad
+       efectivos se calculan mediante Welch-Satterthwaite: nu_eff = u_c^4 / ((u_rep^4) / 4) [con n - 1 = 4],
+       aplicando el factor de Student bilateral correspondiente t_0.975(nu_eff) para cobertura del 95%.
+   - Límite superior de decisión estadística: V_GS,sup = V_GS_prom + U_95.
+7. Criterios de Aceptación y Reglas de Decisión:
+   - Regla de Aborto Inmediato por Seguridad (Lecturas Estáticas de ACT-01.1): Si durante
+     las mediciones estáticas de este protocolo una lectura individual del multímetro
+     supera 0.200 V (V_GS,i > 0.200 V), desenergizar la fuente de 5V de inmediato sin
+     esperar a completar la serie ni promediar. Revisar conexionado de Q1/Q2 e integridad de resistencias.
+   - Conformidad Aprobada: V_GS,sup <= 0.100 V en los escenarios evaluados y LED testigo totalmente apagado.
+   - Zona Indeterminada (No concluyente): 0.100 V < V_GS,sup <= 0.200 V. Exige suspender la secuencia,
+     verificar calibración del DMM, revisar conexiones de masa y repetir la serie estadística.
+   - Aborto Metrológico tras Procesar Serie: Si V_GS,sup > 0.200 V, desenergizar la fuente e inspeccionar.
+   > Nota Metrológica y Limitación Física: Verificar V_GS,sup <= 0.100 V y el LED apagado
+   > confirma corte de compuerta según el modelo de diseño. En cuanto al indicador luminoso,
+   > el LED permanece visualmente apagado, lo que demuestra que no existe conducción suficiente
+   > para producir emisión perceptible en las condiciones del ensayo; no obstante, esta observación
+   > no establece un límite cuantitativo de I_D ni demuestra corriente estrictamente nula debido
+   > a posibles fugas sub-umbral. La cuantificación directa de corriente se encuentra formalmente
+   > asignada a los ensayos posteriores que instrumentan dicha magnitud (ACT-03.1 mediante amperímetro
+   > DC en serie y ACT-03.2 mediante resistencia shunt con osciloscopio).
+   > Dependencia Mandatoria: La superación de ACT-01.1 autoriza a proseguir con ACT-01.2 (captura
+   > oscilográfica), pero no habilita la conexión de la bomba de potencia hasta superar ACT-02.
 ================================================================================
 ```
 

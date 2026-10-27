@@ -12,6 +12,32 @@ Una característica fundamental del sensor capacitivo v1.2 es que su salida anal
 - **Sumergido en un vaso con agua (100% humedad):** El valor analógico ADC es **MÍNIMO** (típicamente entre `240` y `310` en Arduino Nano, o `1100` a `1500` en ESP32).
 
 ---
+### 1.1 Protocolo de Recepción Instrumental del Sensor Capacitivo v1.2 (Control de Lote)
+
+Debido a la alta dispersión de componentes en clones comerciales del sensor capacitivo v1.2 (temporizadores 555 en variantes bipolares o CMOS y reguladores con tolerancias dispares), todo módulo debe superar un ensayo instrumental de recepción previo a su instalación definitiva:
+
+1. **Condiciones de Control del Ensayo:**
+   - Alimentación externa regulada fijada estrictamente en $3{,}30\,\text{V} \pm 10\,\text{mV}$ en bornes VCC/GND del sensor.
+   - Espacio despejado: mantener una separación mínima de $10\,\text{cm}$ alrededor del sensor respecto de manos, cables y objetos metálicos durante la prueba en aire.
+   - Temperatura ambiente controlada y registrada en el intervalo de $20^\circ\text{C}$ a $25^\circ\text{C}$.
+   - Multímetro digital calibrado midiendo la salida analógica (AOUT) respecto a GND.
+
+2. **Procedimiento de Muestreo:**
+   - **En Aire:** Sensor suspendido en el espacio despejado sin contacto manual. Registrar 3 lecturas a intervalos de 10 s; determinar el promedio $\bar{V}_{\text{aire}}$ y el rango de repetibilidad $R_{\text{aire}} = V_{\max} - V_{\min}$.
+   - **En Agua:** Pala sumergida estrictamente hasta la línea blanca transversal en agua corriente limpia. Esperar 10 s y registrar 3 lecturas a intervalos de 10 s; determinar $\bar{V}_{\text{agua}}$ y $R_{\text{agua}} = V_{\max} - V_{\min}$.
+   - **Dinámica:** Determinar el diferencial útil: $\Delta V = \bar{V}_{\text{aire}} - \bar{V}_{\text{agua}}$.
+
+3. **Criterios Jerárquicos de Decisión (Orden Estricto de Evaluación):**
+
+| Prioridad | Evaluación | Condiciones Metrológicas Requeridas | Acción de Ingeniería |
+| :---: | :---: | :--- | :--- |
+| **1** | **RECHAZO** | Se activa si se cumple **al menos una** de las siguientes condiciones:<br>• $\Delta V < 0{,}400\,\text{V}$ (sensibilidad dinámica insuficiente)<br>• $\bar{V}_{\text{aire}} > 3{,}100\,\text{V}$ (umbral interno de rechazo por dispersión de lote)<br>• $R_{\text{aire}} > 0{,}050\,\text{V}$ o $R_{\text{agua}} > 0{,}050\,\text{V}$ (inestabilidad excesiva)<br>• Señal oscilante errática o sin modulación detectable | Módulo **RECHAZADO**. Marcar lote y descartar para control automático. |
+| **2** | **ACEPTACIÓN PRELIMINAR** | Requiere cumplir **simultáneamente todas** las condiciones:<br>• No haber activado ningún criterio de Prioridad 1<br>• $\Delta V \ge 0{,}800\,\text{V}$<br>• $\bar{V}_{\text{aire}} \le 2{,}900\,\text{V}$<br>• $R_{\text{aire}} \le 0{,}020\,\text{V}$ y $R_{\text{agua}} \le 0{,}020\,\text{V}$ | Módulo **APROBADO PRELIMINARMENTE** para pasar a la fase de calibración; la integración queda condicionada a los controles eléctricos y funcionales posteriores. |
+| **3** | **ZONA INDETERMINADA** | Casos intermedios residuales (sin activación de Prioridad 1, pero sin alcanzar los umbrales de Prioridad 2, p. ej. $2{,}900\,\text{V} < \bar{V}_{\text{aire}} \le 3{,}100\,\text{V}$ o $0{,}400\,\text{V} \le \Delta V < 0{,}800\,\text{V}$). | Módulo **EN OBSERVACIÓN**. Requiere verificación con osciloscopio en circuito oscilador o ensayo previo en sustrato real antes de aceptar. |
+
+> **Nota de Trazabilidad:** El umbral $\bar{V}_{\text{aire}} \le 2{,}900\,\text{V}$ constituye una especificación interna de diseño y control de recepción de componentes para asegurar margen de diseño respecto a la alimentación de $3{,}3\,\text{V}$, no una garantía absoluta de comportamiento físico del microcontrolador.
+
+---
 
 ## 2. Procedimiento de Calibración Paso a Paso
 

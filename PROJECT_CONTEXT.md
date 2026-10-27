@@ -71,7 +71,9 @@ El firmware adopta una **Arquitectura en Capas Desacoplada (Layered Architecture
 
 ### 3.2 ESP32 DevKit V1 (3.3V Nativo)
 - **Microcontrolador:** ESP-WROOM-32 (30 pines, lógica 3.3 V).
-- **Sensor de suelo capacitivo v1.2:** **Obligatoriamente alimentado a 3.3V** (salida analógica $\le 2.9\,\text{V}$ conectada a `GPIO 34` / ADC1_CH6 para proteger el conversor del microcontrolador).
+- **Sensor de suelo capacitivo v1.2:** **Obligatoriamente alimentado a 3.3V** (conectado a `GPIO 34` / ADC1_CH6).
+  - *Criterio de Recepción e Inspección:* Selección de lote en recepción sujeta a $\bar{V}_{\text{aire}} \le 2{,}900\,\text{V}$ (según protocolo instrumental en `docs/04_CALIBRACION_Y_CONFIGURACION.md`).
+  - *Aclaración Metrológica:* El valor de $2{,}900\,\text{V}$ representa un umbral interno adoptado como margen de diseño respecto a la alimentación nominal de $3{,}3\,\text{V}$ para asegurar holgura en el control de calidad, sin constituir una garantía de linealidad absoluta del conversor ADC del SoC.
 - **Driver de bomba (Etapa Bipolar No Inversora NPN+PNP de 2 Etapas):**
   - **Q1 (Transistor NPN - Traslador de Nivel - CRIT-01 / MEN-05):**
     * *Secuencia Mandatoria de Identificación (6 Pasos):* (1) Registrar marcaje exacto; (2) Identificar fabricante y referencia (`P2N2222A` C-B-E vs `PN2222A` E-B-C); (3) Consultar hoja de datos oficial exacta; (4) Confirmar orientación física por plano del fabricante; (5) Comprobar uniones PN con multímetro en modo diodo como verificación complementaria (sin asumir desigualdad universal entre $V_{BE}$ y $V_{BC}$); y (6) Registrar el resultado antes de montar o energizar.

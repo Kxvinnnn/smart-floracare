@@ -52,6 +52,37 @@ Para reemplazar el BJT se evaluaron MOSFETs de nivel lógico, distinguiendo estr
      - *Accionamiento directo de IRLZ44N a 3.3V:* Descartado al no existir $R_{DS(on)}$ garantizada en `PD-91338` para $V_{GS} \le 3.3\,\text{V}$.
      - *Pre-driver inversor de 1 solo transistor NPN:* Prohibido terminantemente porque invertiría la lógica, encendiendo la bomba cuando el microcontrolador entra en reset.
 
+### 2.2 Análisis de Estados de Alimentación, Desacoplo de Señal y Fugas
+
+La interacción entre el dominio de control de 3.3V (ESP32) y la etapa de potencia de 5.0V se analiza formalmente bajo los siguientes estados operativos de alimentación:
+
+1. **Estado 1 (Sistema Completamente Desenergizado):**
+   - Rieles de 3.3V y 5.0V a 0V.
+   - Como objetivo de diseño, $Q_1$ y $Q_2$ permanecen en reposo referenciados a tierra a través de $R_{pd1} = 10\,\text{k}\Omega$ y $R_{pd2} = 10\,\text{k}\Omega$, proyectando teóricamente $V_{GS} \approx 0\,\text{V}$.
+
+2. **Estado 2 (Régimen Nominal — Ambos Rieles Energizados):**
+   - Riel de 3.3V activo y riel de 5.0V activo.
+   - En reposo (`GPIO 18` en LOW): Se busca mantener $Q_1$ en corte. La base de $Q_2$ es referenciada a $+5\,\text{V}$ mediante $R_{pu} = 10\,\text{k}\Omega$ para favorecer el corte de $Q_2$. La resistencia $R_{pd2} = 10\,\text{k}\Omega$ establece una vía de descarga pasiva de compuerta hacia GND. El cumplimiento del criterio de diseño $V_{GS} \le 0{,}100\,\text{V}$ constituye un requisito que solo puede confirmarse experimentalmente en ACT-01.1.
+   - En activación (`GPIO 18` en HIGH): $Q_1$ conduce, estableciendo una corriente de base en $Q_2$ a través de $R_2 = 2{,}2\,\text{k}\Omega$. Esto satura $Q_2$, con el objetivo de elevar la compuerta a $V_{GS} \ge 4{,}50\,\text{V}$ según el modelo analítico nominal. El valor efectivo alcanzado dependerá de la carga real y las caídas de saturación que se registren en banco en ACT-02.
+
+3. **Estado 3 — ESP32 energizado y riel de 5.0V desenergizado:**
+   - Si `GPIO 18` conmuta a HIGH, $Q_1$ conduce y su colector queda próximo al potencial de GND, con una caída determinada por sus condiciones de conducción ($V_{CE1(sat)}$). El emisor de $Q_2$ permanece conectado al riel de 5V, cuyo potencial depende del estado de la fuente y de sus circuitos internos.
+   - La existencia de una trayectoria de retorno hacia GND no demuestra por sí sola que la unión emisor-base de $Q_2$ quede polarizada en directa. Su estado de conducción depende de la diferencia instantánea de potencial entre emisor y base, así como de las trayectorias resistivas, capacitivas y semiconductoras presentes.
+   - Por tanto, no se establece una corriente universal ni una resistencia serie equivalente fija para esta condición. El comportamiento del circuito debe evaluarse a partir de la topología real y, si se requiere caracterizar este estado, mediante un procedimiento experimental específico y seguro. Esta condición se considera anómala y debe evitarse durante la secuencia operativa normal.
+
+4. **Estado 4A (Riel de 5.0V Energizado, ESP32 Desenergizado con Señal Conectada):**
+   - *Condición teórica suspendida preventivamente de ejecución directa.*
+   - Si el pin `GPIO 18` permanece cableado a $R_1$ mientras el microcontrolador carece de alimentación en su riel de 3.3V, la resistencia $R_{pd1} = 10\,\text{k}\Omega$ busca mantener la base de $Q_1$ referenciada a GND.
+   - En la hoja técnica de onsemi (`PN2222A/D`), la corriente de corte $I_{CEX}$ está especificada como $\le 10\,\text{nA}$ a $T_A = 25^\circ\text{C}$ bajo la condición de base polarizada en inversa ($V_{CE} = 60\,\text{V}, V_{EB(\text{off})} = 3{,}0\,\text{V}$). En el circuito real, con la base conectada pasivamente a tierra y sujeta a variaciones de temperatura y corrientes de fuga superficiales de placa, las corrientes de fuga no están garantizadas contractualmente en dicho valor. Su absorción por $R_{pu}$ para mantener $Q_2$ en corte pasivo constituye una hipótesis de diseño no validada experimentalmente en esta fase, quedando formalmente excluida de la secuencia inicial de ACT-01.1 para proteger las estructuras de protección del SoC.
+
+5. **Estado 4B (Riel de 5.0V Energizado, ESP32 Energizado en Reset):**
+   - *Condición física evaluada activamente en ACT-01.1 (Escenario C).*
+   - Con ambos rieles energizados ($3{,}3\,\text{V}$ y $+5\,\text{V}$) y el pulsador físico EN presionado hacia GND, el SoC se encuentra en reinicio por hardware con sus pines en alta impedancia (High-Z). La resistencia $R_{pd1} = 10\,\text{k}\Omega$ retiene la base de $Q_1$ en $0\,\text{V}$, manteniendo el driver en corte pasivo, condición que se valida instrumentalmente en el Escenario C de ACT-01.1.
+
+> **Delimitación de la Medición Instrumental:**
+> - El protocolo mandatorio **ACT-01.1** se restringe a medir de forma no invasiva la tensión $V_{GS}$ en la compuerta de $Q_3$ con multímetro de alta resolución y verificar visualmente el estado del LED testigo.
+> - La estimación de corriente en la interfaz de entrada mediante la caída diferencial en bornes de $R_1$ ($I_{R1} = \Delta V_{R1} / R_1$) se clasifica exclusivamente como una técnica auxiliar exploratoria. Dicha corriente representa el flujo neto por esa resistencia y no equivale directamente a la corriente inyectada en `GPIO 18` debido a la presencia en paralelo de $R_{pd1}$ y posibles fugas del nodo. Su empleo exige evaluar formalmente los efectos de carga y la incertidumbre del instrumento.
+
 ## Consecuencias y Reglas de Protección
 - **Uso Exclusivo en Conmutación Estática ON/OFF (Sin PWM):** En ESP32 la descarga pasiva de compuerta por $R_{pd2} = 10\,\text{k}\Omega$ arroja una estimación teórica orientativa de apagado de $\approx 68\,\mu\text{s}$ (RC lineal) a $\approx 100\text{--}220\,\mu\text{s}$ (proyectando $Q_g \le 48\,\text{nC}$ a $44\,\text{V}/25\,\text{A}$). Queda prohibido emplear PWM sin rediseñar la descarga de compuerta y caracterizar la forma de onda en `ACT-04`.
 - **Resistencia Pull-Down Obligatoria ($10\,\text{k}\Omega$) y Serie en Nano ($1\,\text{k}\Omega$):** Mantiene Gate referenciado a Source en boot/reset y limita el pico capacitivo sobre `D3` en Nano.
