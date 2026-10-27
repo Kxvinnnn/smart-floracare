@@ -69,23 +69,25 @@ static int test_common_safety_invariants() {
     ASSERT_TRUE(ctrl.getState() == ControllerState::IDLE, "State must return to IDLE after recovery");
 
     // 5. Verificación de rearme explícito vs auto-recuperación ante MAX_TIMEOUT_EXCEEDED (H-01 Req 5)
-    // Forzar fallo de tiempo máximo
-    ASSERT_TRUE(ctrl.requestWatering(IrrigationSource::AUTO_CYCLE, 20000U, true, SensorHealth::OK, 10),
+    // Forzar fallo de tiempo máximo (avanzando más allá del límite absoluto de seguridad en cualquier modo)
+    const uint32_t tStartTimeout = 20000U;
+    ASSERT_TRUE(ctrl.requestWatering(IrrigationSource::AUTO_CYCLE, tStartTimeout, true, SensorHealth::OK, 10),
                 "Watering after cooldown must start");
-    ASSERT_TRUE(!ctrl.update(40000U, true, SensorHealth::OK, 10),
+    const uint32_t tAfterTimeout = tStartTimeout + cfg.maxSafetyWatchdogMs + 1000U;
+    ASSERT_TRUE(!ctrl.update(tAfterTimeout, true, SensorHealth::OK, 10),
                 "Watering must stop on max timeout");
     ASSERT_TRUE(ctrl.getState() == ControllerState::FAULT, "State must be FAULT");
     ASSERT_TRUE(ctrl.getLastFault() == FaultReason::MAX_TIMEOUT_EXCEEDED, "Fault must be MAX_TIMEOUT_EXCEEDED");
 
     // attemptRecovery() NO debe borrar MAX_TIMEOUT_EXCEEDED automáticamente
-    ASSERT_TRUE(!ctrl.attemptRecovery(41000U, true, SensorHealth::OK),
+    ASSERT_TRUE(!ctrl.attemptRecovery(tAfterTimeout + 1000U, true, SensorHealth::OK),
                 "attemptRecovery must NEVER auto-clear MAX_TIMEOUT_EXCEEDED");
     ASSERT_TRUE(ctrl.getState() == ControllerState::FAULT, "State must remain FAULT");
 
     // resetFault() (procedimiento explícito de rearme) sí lo desbloquea si las condiciones son seguras
-    ASSERT_TRUE(!ctrl.resetFault(42000U, false, SensorHealth::OK),
+    ASSERT_TRUE(!ctrl.resetFault(tAfterTimeout + 2000U, false, SensorHealth::OK),
                 "resetFault must reject rearme if water is missing");
-    ASSERT_TRUE(ctrl.resetFault(43000U, true, SensorHealth::OK),
+    ASSERT_TRUE(ctrl.resetFault(tAfterTimeout + 3000U, true, SensorHealth::OK),
                 "resetFault must succeed when physical conditions are valid");
     ASSERT_TRUE(ctrl.getState() == ControllerState::IDLE, "State must return to IDLE after resetFault");
     ASSERT_TRUE(ctrl.getLastFault() == FaultReason::NONE, "Fault must be cleared after resetFault");
