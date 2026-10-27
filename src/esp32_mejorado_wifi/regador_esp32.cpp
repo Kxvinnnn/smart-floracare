@@ -6,9 +6,18 @@
  * ============================================================================
  */
 
+// Parámetros defensivos no bloqueantes para WebServer (mitiga H-04)
+#ifndef WEBSERVER_MAX_LINE_WAIT
+#define WEBSERVER_MAX_LINE_WAIT 500
+#endif
+#ifndef WEBSERVER_MAX_HEADER_WAIT
+#define WEBSERVER_MAX_HEADER_WAIT 1000
+#endif
+
 #include <stdint.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <esp_task_wdt.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
@@ -359,7 +368,13 @@ static void handleRoot() {
     html += F("</div><p>Dep&oacute;sito: <b>");
     html += waterLevelOk ? "Nivel Adecuado (OK)" : "<span class='warn'>VAC&Iacute;O - RELLENAR</span>";
     html += F("</b></p><p>Estado Bomba: <b>");
-    html += controller.isPumpActive() ? "<span style='color:#1565c0'>REGANDO...</span>" : "Reposo";
+    if (controller.getState() == ControllerState::FAULT) {
+        html += "<span class='warn'>BLOQUEADO POR FALLO</span>";
+    } else if (controller.isPumpActive()) {
+        html += "<span style='color:#1565c0'>REGANDO...</span>";
+    } else {
+        html += "Reposo";
+    }
     html += F("</b></p>");
 
     if (isDefaultOrInsecureToken(API_AUTH_TOKEN)) {
@@ -382,8 +397,9 @@ static uint32_t lastFailedAuthMs = 0;
 static void handleApiWater() {
     const uint32_t nowMs = millis();
 
-    // 1. Verificación obligatoria de método HTTP POST
+    // 1. Verificación obligatoria de método HTTP POST con cabecera Allow (REQ-17, H-02)
     if (server.method() != HTTP_POST) {
+        server.sendHeader("Allow", "POST");
         server.send(405, "application/json", F("{\"error\":\"Method Not Allowed. Use POST.\"}"));
         return;
     }
@@ -497,6 +513,17 @@ static void handleApiWater() {
 void setup() {
     Serial.begin(115200);
 
+    // Configurar Task Watchdog Timer (4000 ms) para proteger contra bloqueos (H-04)
+    esp_task_wdt_config_t twdt_config = {
+        .timeout_ms = 4000,
+        .idle_core_mask = (1 << 0),
+        .trigger_panic = true
+    };
+    if (esp_task_wdt_reconfigure(&twdt_config) != ESP_OK) {
+        esp_task_wdt_init(&twdt_config);
+    }
+    esp_task_wdt_add(NULL);
+
     pinMode(PIN_DRIVER_BOMBA, OUTPUT);
     digitalWrite(PIN_DRIVER_BOMBA, LOW); // Estado seguro incondicional al arranque
 
@@ -530,7 +557,7 @@ void setup() {
             const char* headerKeys[] = {"Authorization", "Origin", "Host", "Referer"};
             server.collectHeaders(headerKeys, 4);
             server.on("/", HTTP_GET, handleRoot);
-            server.on("/api/water", HTTP_POST, handleApiWater);
+            server.on("/api/water", HTTP_ANY, handleApiWater);
             server.begin();
             if (isDefaultOrInsecureToken(API_AUTH_TOKEN)) {
                 Serial.println(F("[SEGURIDAD] AVISO: Token de API inseguro o ausente. /api/water rechazara peticiones (HTTP 403)."));
@@ -550,19 +577,85 @@ void setup() {
 }
 
 // ============================================================================
+// TELEMETRÍA SERIE PERIÓDICA ATÓMICA Y NO BLOQUEANTE (ORDEN DE TRABAJO UART)
+// ============================================================================
+static void emitPeriodicTelemetry(uint32_t nowMs) {
+    static uint32_t lastTelemetryMs = 0;
+    if (static_cast<uint32_t>(nowMs - lastTelemetryMs) < 1000) {
+        return;
+    }
+    lastTelemetryMs = nowMs;
+
+    // Búfer local en pila (0 reserva dinámica en heap, 64 bytes acotados)
+    char buf[64];
+    int len = 0;
+
+    if (controller.getState() == ControllerState::FAULT) {
+        const char* faultStr = "OTHER";
+        switch (controller.getLastFault()) {
+            case FaultReason::NO_WATER_LEVEL:       faultStr = "NO_WATER_LEVEL"; break;
+            case FaultReason::MAX_TIMEOUT_EXCEEDED: faultStr = "TIMEOUT"; break;
+            case FaultReason::SENSOR_MALFUNCTION:   faultStr = "SENSOR_ERR"; break;
+            case FaultReason::INVALID_REQUEST:      faultStr = "INVALID_REQ"; break;
+            default:                                faultStr = "NONE"; break;
+        }
+        len = snprintf(buf, sizeof(buf), "[STATE] FAULT | FAULT:%s | %s | %s\n",
+                       faultStr,
+                       waterLevelOk ? "WATER:OK" : "WATER:LOW",
+                       controller.isPumpActive() ? "PUMP:ON" : "PUMP:OFF");
+    } else {
+        const char* stateStr = "IDLE";
+        switch (controller.getState()) {
+            case ControllerState::IDLE:       stateStr = "IDLE"; break;
+            case ControllerState::VALIDATING: stateStr = "VALIDATING"; break;
+            case ControllerState::WATERING:   stateStr = "WATERING"; break;
+            case ControllerState::STOPPED:    stateStr = "STOPPED"; break;
+            case ControllerState::RECOVERY:   stateStr = "RECOVERY"; break;
+            default:                          stateStr = "IDLE"; break;
+        }
+        if (sensorStatus == SensorHealth::OK) {
+            len = snprintf(buf, sizeof(buf), "[STATE] %s | MOIST:%u | %s | %s\n",
+                           stateStr,
+                           static_cast<unsigned int>(currentMoisturePct),
+                           waterLevelOk ? "WATER:OK" : "WATER:LOW",
+                           controller.isPumpActive() ? "PUMP:ON" : "PUMP:OFF");
+        } else {
+            len = snprintf(buf, sizeof(buf), "[STATE] %s | MOIST:ERR | %s | %s\n",
+                           stateStr,
+                           waterLevelOk ? "WATER:OK" : "WATER:LOW",
+                           controller.isPumpActive() ? "PUMP:ON" : "PUMP:OFF");
+        }
+    }
+
+    // Descarte atómico seguro: Si el búfer serie no tiene espacio suficiente para
+    // la trama ENTERA (incluido fin de línea), abortar inmediatamente sin transmitir
+    // nada. Garantiza 0 µs de bloqueo y evita fragmentaciones de tramas.
+    if (len <= 0 || len >= static_cast<int>(sizeof(buf)) || Serial.availableForWrite() < len) {
+        return;
+    }
+
+    Serial.write(reinterpret_cast<const uint8_t*>(buf), static_cast<size_t>(len));
+}
+
+// ============================================================================
 // BUCLE PRINCIPAL DETERMINISTA Y NO BLOQUEANTE
 // ============================================================================
 void loop() {
-    server.handleClient();
+    esp_task_wdt_reset(); // Alimentar Task Watchdog de hardware en cada iteración
     const uint32_t nowMs = millis();
 
-    // 1. TAREA CRÍTICA: Lectura periódica y debouncing del flotador
-    // El flotador se evalúa cada 50ms para respuesta inmediata si el nivel cae
-    static uint32_t lastFloatCheckMs = 0;
-    if (static_cast<uint32_t>(nowMs - lastFloatCheckMs) >= 50) {
-        lastFloatCheckMs = nowMs;
-        // LOW = Flotador arriba (Agua OK), HIGH = Abajo (Vacío)
-        waterLevelOk = (digitalRead(PIN_FLOTADOR_AGUA) == LOW);
+    // 0. GESTIÓN SÍNCRONA DE SERVICIOS DE RED HTTP
+    if (WiFi.status() == WL_CONNECTED) {
+        server.handleClient();
+    }
+
+    // 1. TAREA CRÍTICA: Antirrebote e integración temporal de boya (REQ-07, ACT-05.3a)
+    static FloraCare::FloatSwitchDebouncer floatDebouncer(digitalRead(PIN_FLOTADOR_AGUA) == LOW);
+    waterLevelOk = floatDebouncer.update(digitalRead(PIN_FLOTADOR_AGUA) == LOW, nowMs);
+
+    // Auto-recuperación de FAULT ante normalización física verificable (H-01 Opción A)
+    if (controller.getState() == ControllerState::FAULT) {
+        controller.attemptRecovery(nowMs, waterLevelOk, sensorStatus);
     }
 
     // 2. MUESTREO DE HUMEDAD: Cada 1000ms
@@ -571,8 +664,10 @@ void loop() {
         uint16_t rawAdc = sampleAnalogFast();
         SensorValidator::calculateMoisturePercent(rawAdc, ESP32_CALIBRATION, currentMoisturePct, sensorStatus);
 
-        // Si el sensor está en fallo, evaluar corte automático
-        if (sensorStatus != SensorHealth::OK && controller.getState() == ControllerState::WATERING) {
+        // Si el sensor falla durante un ciclo automático, parar inmediatamente (H-05)
+        if (sensorStatus != SensorHealth::OK &&
+            controller.getState() == ControllerState::WATERING &&
+            controller.getActiveSource() == IrrigationSource::AUTO_CYCLE) {
             controller.stop(StopReason::SENSOR_FAULT, nowMs);
         }
 
@@ -586,19 +681,28 @@ void loop() {
         }
     }
 
-    // 3. ENTRADA DEL BOTÓN FÍSICO CON DEBOUNCING NO BLOQUEANTE
+    // 3. ENTRADA DEL BOTÓN FÍSICO CON DETECCIÓN DE FLANCO Y REARME DE FAULT (H-01, H-06)
+    static bool buttonStableState = HIGH;
     const bool currentBtnReading = digitalRead(PIN_BOTON_MANUAL);
     if (currentBtnReading != lastButtonState) {
         lastButtonDebounceMs = nowMs;
         lastButtonState = currentBtnReading;
     }
-    if ((static_cast<uint32_t>(nowMs - lastButtonDebounceMs) >= 40) && (currentBtnReading == LOW)) {
-        // Disparo centralizado por botón
-        controller.requestWatering(IrrigationSource::MANUAL_BUTTON,
-                                  nowMs,
-                                  waterLevelOk,
-                                  sensorStatus,
-                                  currentMoisturePct);
+    if (static_cast<uint32_t>(nowMs - lastButtonDebounceMs) >= 40) {
+        if (currentBtnReading != buttonStableState) {
+            buttonStableState = currentBtnReading;
+            if (buttonStableState == LOW) { // Flanco descendente
+                if (controller.getState() == ControllerState::FAULT) {
+                    controller.resetFault(nowMs, waterLevelOk, sensorStatus);
+                } else if (controller.getState() == ControllerState::IDLE) {
+                    controller.requestWatering(IrrigationSource::MANUAL_BUTTON,
+                                              nowMs,
+                                              waterLevelOk,
+                                              sensorStatus,
+                                              currentMoisturePct);
+                }
+            }
+        }
     }
 
     // 4. ACTUALIZACIÓN DEL CONTROLADOR CENTRALIZADO DE RIEGO
@@ -618,28 +722,38 @@ void loop() {
     if (!waterLevelOk) {
         if (static_cast<uint32_t>(nowMs - lastBeepTimeMs) >= 6000) {
             lastBeepTimeMs = nowMs;
-            tone(PIN_BUZZER, 850, 100); // Duración de 100ms gestionada por hardware timer
+            tone(PIN_BUZZER, 850, 100);
         }
     }
 
-    // 6. ACTUALIZACIÓN DE PANTALLA OLED CADA 500ms
+    // 6. ACTUALIZACIÓN DE PANTALLA OLED CADA 500ms (INDICACIÓN FIDEDIGNA DE ESTADO REAL)
     if (static_cast<uint32_t>(nowMs - lastDisplayTimeMs) >= 500) {
         lastDisplayTimeMs = nowMs;
         const char* msg = "OPTIMO";
-        if (!waterLevelOk) {
+        if (controller.getState() == ControllerState::FAULT) {
+            if (controller.getLastFault() == FaultReason::NO_WATER_LEVEL) {
+                msg = "SIN AGUA!";
+            } else if (controller.getLastFault() == FaultReason::SENSOR_MALFUNCTION) {
+                msg = "SENSOR ERR";
+            } else if (controller.getLastFault() == FaultReason::MAX_TIMEOUT_EXCEEDED) {
+                msg = (controller.getLastStopReason() == StopReason::SAFETY_TIMEOUT)
+                      ? "WDT 25S ERR"
+                      : "TIMEOUT 20S";
+            } else {
+                msg = "FALLO SEGURO";
+            }
+        } else if (!waterLevelOk) {
             msg = "SIN AGUA!";
         } else if (controller.isPumpActive()) {
             msg = "REGANDO...";
         } else if (sensorStatus != SensorHealth::OK) {
             msg = "SENSOR ERR";
-        } else if (controller.getState() == ControllerState::FAULT &&
-                   controller.getLastFault() == FaultReason::MAX_TIMEOUT_EXCEEDED) {
-            msg = (controller.getLastStopReason() == StopReason::SAFETY_TIMEOUT)
-                  ? "WDT 25S ERR"
-                  : "TIMEOUT 20S";
         } else if (currentMoisturePct <= IRRIGATION_CFG.autoStartMoisturePct) {
             msg = "SUELO SECO";
         }
         updateDisplay(msg);
     }
+
+    // 7. TELEMETRÍA SERIE PERIÓDICA NO BLOQUEANTE (1000ms, PRIORIDAD BAJA)
+    emitPeriodicTelemetry(nowMs);
 }

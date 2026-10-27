@@ -169,8 +169,9 @@ class MockHttpServerEndpoint:
                        origin=None, referer=None, now_ms=1000, water_level_ok=True,
                        sensor_health=SensorHealth.OK, current_moisture=50,
                        content_length=None):
-        # 1. Método HTTP
+        # 1. Método HTTP con cabecera Allow (REQ-17, H-02)
         if method != "POST":
+            self.last_response_headers = {"Allow": "POST"}
             return 405, {"error": "Method Not Allowed. Use POST."}
 
         # 2. Control de tasa no bloqueante ante fallos sucesivos
@@ -310,10 +311,11 @@ class TestHttpAuthSecurityComprehensive(unittest.TestCase):
     # --- SECCIÓN 2: AUTENTICACIÓN HTTP (CASOS 8-20) ---
 
     def test_08_get_request_to_water_endpoint_rejected(self):
-        """8. Solicitud GET a /api/water se rechaza con 405 Method Not Allowed."""
+        """8. Solicitud GET a /api/water se rechaza con 405 Method Not Allowed y cabecera Allow: POST."""
         status, body = self.endpoint.handle_request("GET", form_token=self.valid_secret)
         self.assertEqual(status, 405)
         self.assertIn("Method Not Allowed", body["error"])
+        self.assertEqual(self.endpoint.last_response_headers.get("Allow"), "POST")
         self.assertFalse(self.controller.is_pump_active())
 
     def test_09_post_without_token_rejected(self):
@@ -410,6 +412,8 @@ class TestHttpAuthSecurityComprehensive(unittest.TestCase):
         with open(ESP32_CPP, "r", encoding="utf-8") as f:
             content = f.read()
         self.assertIn('server.send(405, "application/json"', content)
+        self.assertIn('server.sendHeader("Allow", "POST");', content)
+        self.assertIn('server.on("/api/water", HTTP_ANY, handleApiWater);', content)
         self.assertIn('server.send(403, "application/json"', content)
         self.assertIn('server.send(401, "application/json"', content)
         self.assertIn('server.send(400, "application/json"', content)

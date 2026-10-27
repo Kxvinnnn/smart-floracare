@@ -126,6 +126,43 @@ class CalibrationProfile:
         return pct, SensorHealth.OK
 
 
+class MockFloatSwitchDebouncer:
+    def __init__(self, initial_water_ok=False, sample_interval_ms=15, empty_confirm_samples=3, fill_confirm_samples=10):
+        self.sample_interval_ms = sample_interval_ms
+        self.empty_confirm_samples = empty_confirm_samples
+        self.fill_confirm_samples = fill_confirm_samples
+        self.consecutive_reads = 0
+        self.last_sample_ms = 0
+        self.candidate_reading = initial_water_ok
+        self.debounced_water_ok = initial_water_ok
+
+    def update(self, raw_reading_water_ok, now_ms):
+        if self.last_sample_ms > 0 and ((now_ms - self.last_sample_ms) & 0xFFFFFFFF) < self.sample_interval_ms:
+            return self.debounced_water_ok
+        self.last_sample_ms = now_ms
+
+        if raw_reading_water_ok != self.debounced_water_ok:
+            if raw_reading_water_ok == self.candidate_reading:
+                self.consecutive_reads += 1
+            else:
+                self.candidate_reading = raw_reading_water_ok
+                self.consecutive_reads = 1
+
+            required = self.fill_confirm_samples if self.candidate_reading else self.empty_confirm_samples
+            if self.consecutive_reads >= required:
+                self.debounced_water_ok = self.candidate_reading
+                self.consecutive_reads = 0
+        else:
+            self.consecutive_reads = 0
+            self.candidate_reading = self.debounced_water_ok
+
+        return self.debounced_water_ok
+
+    @property
+    def is_water_ok(self):
+        return self.debounced_water_ok
+
+
 class MockIrrigationController:
     def __init__(self, max_auto_ms=20000, manual_ms=3000, watchdog_ms=25000, cooldown_ms=5000, start_pct=25, stop_pct=70):
         self.max_auto_ms = max_auto_ms
@@ -223,12 +260,24 @@ class MockIrrigationController:
     def attempt_recovery(self, now_ms, water_level_ok, sensor_health):
         if self.state != ControllerState.FAULT:
             return True
+        if self.last_fault == FaultReason.MAX_TIMEOUT_EXCEEDED:
+            return False
         self.state = ControllerState.RECOVERY
         if self.last_fault == FaultReason.NO_WATER_LEVEL and not water_level_ok:
             self.state = ControllerState.FAULT
             return False
         if self.last_fault == FaultReason.SENSOR_MALFUNCTION and sensor_health != SensorHealth.OK:
             self.state = ControllerState.FAULT
+            return False
+        self.last_fault = FaultReason.NONE
+        self.last_stop_ms = now_ms
+        self.state = ControllerState.IDLE
+        return True
+
+    def reset_fault(self, now_ms, water_level_ok, sensor_health):
+        if self.state != ControllerState.FAULT:
+            return True
+        if not water_level_ok or sensor_health != SensorHealth.OK:
             return False
         self.last_fault = FaultReason.NONE
         self.last_stop_ms = now_ms
@@ -330,18 +379,33 @@ class TestSmartFloraCareComprehensive(unittest.TestCase):
         self.assertEqual(self.controller.state, ControllerState.FAULT)
         self.assertEqual(self.controller.last_fault, FaultReason.NO_WATER_LEVEL)
 
-    # 12. Antirrebote del interruptor de flotador
+    # 12. Antirrebote e integrador temporal del interruptor de flotador (REQ-07, ACT-05.3a, H-03)
     def test_12_float_switch_debounce(self):
-        # Simulador de filtro de debouncing de 50ms
-        readings = [False, True, False, False, False]
-        # Con lecturas rápidas inestables no debe consolidarse el estado hasta que sea estable
-        stable_state = False
-        debounce_ms = 50
-        last_change_ms = 100
-        now_ms = 120 # solo 20ms transcurridos -> no consolida
-        if (now_ms - last_change_ms) >= debounce_ms:
-            stable_state = True
-        self.assertFalse(stable_state)
+        debouncer = MockFloatSwitchDebouncer(initial_water_ok=True, sample_interval_ms=15, empty_confirm_samples=3, fill_confirm_samples=10)
+        self.assertTrue(debouncer.is_water_ok)
+
+        # 1. Glitch transitorio de 15 ms no debe disparar corte en falso
+        self.assertTrue(debouncer.update(False, 100))
+        self.assertTrue(debouncer.update(True, 115))
+        self.assertTrue(debouncer.is_water_ok)
+
+        # 2. Vaciado genuino: 3 muestras consecutivas en False (45 ms <= 60 ms para ACT-05.3a)
+        debouncer.update(False, 200) # Muestra 1 (15 ms)
+        debouncer.update(False, 215) # Muestra 2 (30 ms)
+        empty_state = debouncer.update(False, 230) # Muestra 3 (45 ms)
+        self.assertFalse(empty_state)
+        self.assertFalse(debouncer.is_water_ok)
+
+        # 3. Oleaje durante el rellenado (< 150 ms) no debe consolidar restablecimiento prematuro
+        for t in range(300, 375, 15):
+            self.assertFalse(debouncer.update(True, t))
+
+        # 4. Restablecimiento sostenido: 10 muestras consecutivas (150 ms) confirman agua estable
+        for t in range(400, 535, 15):
+            debouncer.update(True, t)
+        water_restored = debouncer.update(True, 550) # 10a muestra
+        self.assertTrue(water_restored)
+        self.assertTrue(debouncer.is_water_ok)
 
     # 13. Antirrebote del botón físico manual
     def test_13_button_debounce(self):

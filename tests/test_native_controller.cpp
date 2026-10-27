@@ -61,12 +61,63 @@ static int test_common_safety_invariants() {
     ASSERT_TRUE(ctrl.getLastFault() == FaultReason::NO_WATER_LEVEL, "FaultReason must be NO_WATER_LEVEL");
     ASSERT_TRUE(ctrl.getLastStopReason() == StopReason::WATER_DEPLETED, "StopReason must be WATER_DEPLETED");
 
-    // 4. Recuperación explícita
+    // 4. Recuperación condicionada ante vaciado (H-01 Opción A)
     ASSERT_TRUE(!ctrl.attemptRecovery(12000U, false, SensorHealth::OK),
                 "Recovery must fail while tank is still empty");
     ASSERT_TRUE(ctrl.attemptRecovery(12500U, true, SensorHealth::OK),
                 "Recovery must succeed once tank level is restored");
     ASSERT_TRUE(ctrl.getState() == ControllerState::IDLE, "State must return to IDLE after recovery");
+
+    // 5. Verificación de rearme explícito vs auto-recuperación ante MAX_TIMEOUT_EXCEEDED (H-01 Req 5)
+    // Forzar fallo de tiempo máximo
+    ASSERT_TRUE(ctrl.requestWatering(IrrigationSource::AUTO_CYCLE, 20000U, true, SensorHealth::OK, 10),
+                "Watering after cooldown must start");
+    ASSERT_TRUE(!ctrl.update(40000U, true, SensorHealth::OK, 10),
+                "Watering must stop on max timeout");
+    ASSERT_TRUE(ctrl.getState() == ControllerState::FAULT, "State must be FAULT");
+    ASSERT_TRUE(ctrl.getLastFault() == FaultReason::MAX_TIMEOUT_EXCEEDED, "Fault must be MAX_TIMEOUT_EXCEEDED");
+
+    // attemptRecovery() NO debe borrar MAX_TIMEOUT_EXCEEDED automáticamente
+    ASSERT_TRUE(!ctrl.attemptRecovery(41000U, true, SensorHealth::OK),
+                "attemptRecovery must NEVER auto-clear MAX_TIMEOUT_EXCEEDED");
+    ASSERT_TRUE(ctrl.getState() == ControllerState::FAULT, "State must remain FAULT");
+
+    // resetFault() (procedimiento explícito de rearme) sí lo desbloquea si las condiciones son seguras
+    ASSERT_TRUE(!ctrl.resetFault(42000U, false, SensorHealth::OK),
+                "resetFault must reject rearme if water is missing");
+    ASSERT_TRUE(ctrl.resetFault(43000U, true, SensorHealth::OK),
+                "resetFault must succeed when physical conditions are valid");
+    ASSERT_TRUE(ctrl.getState() == ControllerState::IDLE, "State must return to IDLE after resetFault");
+    ASSERT_TRUE(ctrl.getLastFault() == FaultReason::NONE, "Fault must be cleared after resetFault");
+
+    // 6. Verificación unitaria de FloatSwitchDebouncer (REQ-07, ACT-05.3a, H-03)
+    FloatSwitchDebouncer debouncer(true, 15U, 3U, 10U);
+    ASSERT_TRUE(debouncer.isWaterOk(), "Initial state must be water OK");
+
+    // Pulso espurio/glitch de 15 ms no debe cambiar el estado
+    ASSERT_TRUE(debouncer.update(false, 100U), "Glitch sample 1 must be filtered");
+    ASSERT_TRUE(debouncer.update(true, 115U), "Return to true resets candidate counter");
+    ASSERT_TRUE(debouncer.isWaterOk(), "Water level must remain OK after 15ms glitch");
+
+    // 3 muestras consecutivas en false (45 ms <= 60 ms) confirman vaciado
+    debouncer.update(false, 200U); // Muestra 1
+    debouncer.update(false, 215U); // Muestra 2
+    bool emptyConfirmed = debouncer.update(false, 230U); // Muestra 3 (t = 45 ms)
+    ASSERT_TRUE(!emptyConfirmed, "Debouncer must transition to empty on 3rd sample (45 ms)");
+    ASSERT_TRUE(!debouncer.isWaterOk(), "Debouncer state must be false");
+
+    // Oleaje de llenado: 5 muestras en true (75 ms < 150 ms) no son suficientes
+    for (uint32_t t = 300U; t < 375U; t += 15U) {
+        ASSERT_TRUE(!debouncer.update(true, t), "Transient sloshing < 150 ms must not declare water OK");
+    }
+
+    // 10 muestras consecutivas (150 ms) confirman restablecimiento seguro
+    for (uint32_t t = 400U; t < 535U; t += 15U) {
+        debouncer.update(true, t);
+    }
+    bool waterRestored = debouncer.update(true, 550U); // 10ª muestra
+    ASSERT_TRUE(waterRestored, "10 consecutive samples (150 ms) must restore water OK");
+    ASSERT_TRUE(debouncer.isWaterOk(), "Debouncer state must be restored to true");
 
     return 0;
 }

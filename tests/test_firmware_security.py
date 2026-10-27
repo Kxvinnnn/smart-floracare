@@ -113,6 +113,8 @@ class TestFirmwareSecurity(unittest.TestCase):
         self.assertIn('server.send(401, "application/json"', content)
         self.assertIn('server.send(403, "application/json"', content)
         self.assertIn('server.send(405, "application/json"', content)
+        self.assertIn('server.sendHeader("Allow", "POST");', content)
+        self.assertIn('server.on("/api/water", HTTP_ANY, handleApiWater);', content)
         self.assertIn('server.send(409, "application/json"', content)
         self.assertIn('server.send(413, "application/json"', content)
         self.assertIn('server.send(429, "application/json"', content)
@@ -139,12 +141,13 @@ class TestFirmwareSecurity(unittest.TestCase):
         for path in [ESP32_CPP, NANO_CPP]:
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
-            # Extract loop() function body
-            loop_match = re.search(r"void\s+loop\s*\(\s*\)\s*\{([^}]*)\}", content, re.DOTALL)
-            if loop_match:
-                loop_body = loop_match.group(1)
-                self.assertNotIn("while (true)", loop_body)
-                self.assertNotIn("while(1)", loop_body)
+            # Extract loop() function body (comprehensive coverage without premature truncation)
+            loop_idx = content.find("void loop()")
+            self.assertNotEqual(loop_idx, -1, f"void loop() not found in {path}")
+            loop_body = content[loop_idx:]
+            self.assertNotIn("while (true)", loop_body)
+            self.assertNotIn("while(1)", loop_body)
+            self.assertNotIn("while (1)", loop_body)
 
     def test_bench_watchdog_environments_and_native_cpp_harness(self):
         """Verify native C++ test harness, PlatformIO bench environments, and CI workflow steps."""
@@ -169,6 +172,90 @@ class TestFirmwareSecurity(unittest.TestCase):
         self.assertIn('#include "IrrigationController.h"', cpp_content)
         self.assertIn("StopReason::AUTO_MAX_DURATION_REACHED", cpp_content)
         self.assertIn("StopReason::SAFETY_TIMEOUT", cpp_content)
+
+    def test_uart_baud_rate_unified_115200(self):
+        """1. Verify UART baud rate is unified to 115200 on both Nano and ESP32."""
+        for path in [ESP32_CPP, NANO_CPP]:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+            self.assertIn("Serial.begin(115200);", content, f"Serial.begin(115200) missing in {path}")
+
+        pio_ini = os.path.join(REPO_ROOT, "platformio.ini")
+        with open(pio_ini, "r", encoding="utf-8") as f:
+            pio_content = f.read()
+        self.assertIn("monitor_speed = 115200", pio_content)
+
+    def test_serial_telemetry_existence_and_interval(self):
+        """2 & 3. Verify existence of telemetry routine, 1000ms nominal interval, and buffer check."""
+        for path in [ESP32_CPP, NANO_CPP]:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+            self.assertIn("emitPeriodicTelemetry(nowMs);", content, f"Periodic telemetry call missing in {path}")
+            self.assertIn("emitPeriodicTelemetry(uint32_t nowMs)", content)
+            self.assertIn("1000", content)
+            self.assertIn("Serial.availableForWrite() < len", content, f"Exact non-blocking buffer check missing in {path}")
+
+    def test_serial_telemetry_non_blocking_no_delay(self):
+        """4. Verify telemetry routine contains zero delay() or busy waiting calls."""
+        for path in [ESP32_CPP, NANO_CPP]:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+            fn_start = content.find("emitPeriodicTelemetry(uint32_t nowMs)")
+            self.assertNotEqual(fn_start, -1)
+            fn_end = content.find("void loop()", fn_start)
+            fn_body = content[fn_start:fn_end]
+            self.assertNotIn("delay(", fn_body)
+            self.assertNotIn("delayMicroseconds(", fn_body)
+            self.assertNotIn("while", fn_body)
+
+    def test_serial_telemetry_format_fields_and_no_secrets(self):
+        """5, 6, 7 & 8. Verify telemetry format tags, error representations, and absence of credentials."""
+        for path in [ESP32_CPP, NANO_CPP]:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+            fn_start = content.find("emitPeriodicTelemetry(uint32_t nowMs)")
+            fn_end = content.find("void loop()", fn_start)
+            fn_body = content[fn_start:fn_end]
+
+            # Tags and format requirements
+            self.assertIn("[STATE] ", fn_body)
+            self.assertIn("MOIST:", fn_body)
+            self.assertIn("WATER:OK", fn_body)
+            self.assertIn("WATER:LOW", fn_body)
+            self.assertIn("PUMP:ON", fn_body)
+            self.assertIn("PUMP:OFF", fn_body)
+            self.assertIn("FAULT:", fn_body)
+            self.assertIn("NO_WATER_LEVEL", fn_body)
+            self.assertIn("TIMEOUT", fn_body)
+            self.assertIn("SENSOR_ERR", fn_body)
+            self.assertIn("ERR", fn_body)
+
+            # Absence of secrets or auth headers
+            self.assertNotIn("API_AUTH_TOKEN", fn_body)
+            self.assertNotIn("WIFI_PASS", fn_body)
+            self.assertNotIn("WIFI_SSID", fn_body)
+
+    def test_serial_telemetry_safety_invariance(self):
+        """9 & 10. Verify telemetry routine has zero side effects on pump or state machine."""
+        for path in [ESP32_CPP, NANO_CPP]:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+            fn_start = content.find("emitPeriodicTelemetry(uint32_t nowMs)")
+            fn_end = content.find("void loop()", fn_start)
+            fn_body = content[fn_start:fn_end]
+            self.assertNotIn("digitalWrite(PIN_DRIVER_BOMBA", fn_body)
+            self.assertNotIn("requestWatering", fn_body)
+            self.assertNotIn("resetFault", fn_body)
+            self.assertNotIn("attemptRecovery", fn_body)
+
+    def test_serial_telemetry_millis_rollover_math(self):
+        """11. Verify 32-bit unsigned rollover arithmetic remains exact at boundary."""
+        now_ms_wrap = 500  # Wrapped around 0xFFFFFFFF
+        last_ms_pre = 0xFFFFFF80  # 128 ms before wrap
+        # In uint32 arithmetic: (500 - 0xFFFFFF80) & 0xFFFFFFFF = 628 ms
+        delta = (now_ms_wrap - last_ms_pre) & 0xFFFFFFFF
+        self.assertEqual(delta, 628)
+        self.assertLess(delta, 1000)  # Telemetry correctly holds off until 1000 ms elapsed
 
 if __name__ == "__main__":
     unittest.main()

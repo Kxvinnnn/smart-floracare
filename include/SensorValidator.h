@@ -96,6 +96,67 @@ public:
     }
 };
 
+/**
+ * Antirrebote e integrador temporal para sensor de nivel por boya magnética.
+ * Cumple con REQ-07 y ACT-05.3a:
+ * - Corte rápido ante vaciado: 3 muestras consecutivas x 15 ms = 45 ms (<= 60 ms).
+ * - Confirmación sostenida ante llenado: 10 muestras consecutivas x 15 ms = 150 ms
+ *   para evitar oscilaciones falsas por oleaje/salpicaduras durante el rellenado.
+ * - Rechaza pulsos espurios y glitches EMI de conmutación < 30 ms.
+ */
+class FloatSwitchDebouncer {
+public:
+    explicit FloatSwitchDebouncer(bool initialWaterOk = false,
+                                  uint32_t sampleIntervalMs = 15,
+                                  uint8_t emptyConfirmSamples = 3,
+                                  uint8_t fillConfirmSamples = 10)
+        : sampleIntervalMs_(sampleIntervalMs),
+          emptyConfirmSamples_(emptyConfirmSamples),
+          fillConfirmSamples_(fillConfirmSamples),
+          consecutiveReads_(0),
+          lastSampleMs_(0),
+          candidateReading_(initialWaterOk),
+          debouncedWaterOk_(initialWaterOk) {}
+
+    bool update(bool rawReadingWaterOk, uint32_t nowMs) {
+        if (lastSampleMs_ > 0 && static_cast<uint32_t>(nowMs - lastSampleMs_) < sampleIntervalMs_) {
+            return debouncedWaterOk_;
+        }
+        lastSampleMs_ = nowMs;
+
+        if (rawReadingWaterOk != debouncedWaterOk_) {
+            if (rawReadingWaterOk == candidateReading_) {
+                consecutiveReads_++;
+            } else {
+                candidateReading_ = rawReadingWaterOk;
+                consecutiveReads_ = 1;
+            }
+
+            const uint8_t requiredSamples = candidateReading_ ? fillConfirmSamples_ : emptyConfirmSamples_;
+            if (consecutiveReads_ >= requiredSamples) {
+                debouncedWaterOk_ = candidateReading_;
+                consecutiveReads_ = 0;
+            }
+        } else {
+            consecutiveReads_ = 0;
+            candidateReading_ = debouncedWaterOk_;
+        }
+
+        return debouncedWaterOk_;
+    }
+
+    bool isWaterOk() const { return debouncedWaterOk_; }
+
+private:
+    uint32_t sampleIntervalMs_;
+    uint8_t  emptyConfirmSamples_;
+    uint8_t  fillConfirmSamples_;
+    uint8_t  consecutiveReads_;
+    uint32_t lastSampleMs_;
+    bool     candidateReading_;
+    bool     debouncedWaterOk_;
+};
+
 } // namespace FloraCare
 
 #endif // SENSOR_VALIDATOR_H

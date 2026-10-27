@@ -239,9 +239,23 @@ public:
      * Intento explícito de recuperación tras un estado de fallo.
      * Requiere que la condición causante esté físicamente normalizada.
      */
+    /**
+     * Intento de recuperación condicionada tras un estado de fallo (Opción A).
+     * Solo permite recuperación automática si el fallo fue por condiciones físicas
+     * reversibles (ej. NO_WATER_LEVEL o SENSOR_MALFUNCTION) y dichas condiciones
+     * se han normalizado de forma verificable.
+     * Los fallos por límite máximo de bombeo (MAX_TIMEOUT_EXCEEDED) NO se borran
+     * automáticamente y requieren rearme explícito vía resetFault().
+     */
     bool attemptRecovery(uint32_t nowMs, bool waterLevelOk, SensorHealth sensorHealth) {
         if (state_ != ControllerState::FAULT) {
             return true;
+        }
+
+        // Bloqueo estricto: los fallos por exceso de tiempo de bombeo exigen
+        // reconocimiento/rearme explícito y jamás se borran por retorno del agua.
+        if (lastFault_ == FaultReason::MAX_TIMEOUT_EXCEEDED) {
+            return false;
         }
 
         // Transición a RECOVERY
@@ -257,7 +271,28 @@ public:
             return false;
         }
 
-        // Recuperación exitosa
+        // Recuperación exitosa: regresa a IDLE e impone cooldown preventivo
+        lastFault_ = FaultReason::NONE;
+        lastStopMs_ = nowMs;
+        state_ = ControllerState::IDLE;
+        return true;
+    }
+
+    /**
+     * Procedimiento explícito de rearme / reconocimiento de fallo (ej. pulsación manual
+     * del botón local tras una parada de seguridad).
+     * Permite salir de MAX_TIMEOUT_EXCEEDED siempre que las condiciones físicas sean seguras.
+     */
+    bool resetFault(uint32_t nowMs, bool waterLevelOk, SensorHealth sensorHealth) {
+        if (state_ != ControllerState::FAULT) {
+            return true;
+        }
+
+        // No permitir rearme si no hay agua o el sensor está en cortocircuito/desconectado
+        if (!waterLevelOk || sensorHealth != SensorHealth::OK) {
+            return false;
+        }
+
         lastFault_ = FaultReason::NONE;
         lastStopMs_ = nowMs;
         state_ = ControllerState::IDLE;
