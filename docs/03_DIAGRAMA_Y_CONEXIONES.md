@@ -15,7 +15,7 @@ Este documento proporciona los esquemas detallados de cableado pin a pin para la
 | | `GND` | `GND` | Tierra común |
 | | `SCL` | `A5` | Reloj I2C (Hardware SCL) |
 | | `SDA` | `A4` | Datos I2C (Hardware SDA) |
-| **Driver de Bomba (MOSFET)** | `Gate` | `D3` (vía R 1 kΩ) | Señal PWM / Digital. Resistencia pull-down de 10 kΩ a GND obligatoria |
+| **Driver de Bomba (MOSFET)** | `Gate` | `D3` (vía R 1 kΩ) | Señal digital estática ON/OFF (sin PWM). Resistencia pull-down de 10 kΩ a GND obligatoria |
 | | `Source` | `GND` | Conexión a tierra común |
 | | `Drain` | Bomba (-) | Retorno conmutado a tierra de la bomba |
 | **Bomba Sumergible 5V** | Positivo (+) | `+5V` (Fuente externa) | Conexión directa al riel de potencia de la fuente (NUNCA al pin de la placa) |
@@ -48,10 +48,10 @@ Este documento proporciona los esquemas detallados de cableado pin a pin para la
 | | `SDA` | `GPIO 21` | Datos I2C por defecto en ESP32 |
 | **Driver de Bomba (Opción Oficial ESP32: Driver No Inversor)** | Control Input | GPIO 18 (vía R1 2.2 kΩ) | Base de Q1 (2N2222A) con pull-down 10 kΩ a GND. Activo en HIGH |
 | | Etapa Alta | Emisor Q2 a +5V | Q2 (2N3906 PNP) con pull-up 10 kΩ a +5V y base a colector Q1 vía R2 2.2 kΩ |
-| | Salida a Gate| Colector Q2 | Conectado a Gate del IRLZ44N con pull-down 10 kΩ a GND (conmuta a ~4.85V) |
+| | Salida a Gate| Colector Q2 | Conectado a Gate del IRLZ44N con pull-down 10 kΩ a GND ($V_{GS,\text{nom}} \approx 4.90\,\text{V}$ en modelo; pendiente `ACT-02`) |
 | | Source | GND | Tierra común unificada |
 | | Drain | Bomba (-) | Retorno conmutado del motor a tierra |
-| **Driver de Bomba (Alternativa Comercial Verificada)** | TRIG / IN | GPIO 18 | Módulo MOSFET HW-517 (Dual AOD4184A con ensayo previo en banco de $V_{DS} \le 50\,\text{mV}$). Relés descartados. |
+| **Driver de Bomba (Alternativa Comercial Provisional No Verificada)** | TRIG / IN | GPIO 18 | Módulo `HW-517` **no verificado**: topología variable según proveedor; prohibido montar sin levantar esquemático, validar boot/reset y medir $V_{DS} \le 50\,\text{mV}$. Relés descartados. |
 | **Bomba Sumergible 5V** | Positivo (+) | `+5V` (Fuente externa) | Conexión directa a fuente 5V 2A/3A |
 | | Negativo (-) | `Drain` (MOSFET) | Conmutado |
 | **Diodo Flyback (1N5819 / 1N4007)** | Cátodo (Banda) | Bomba (+) / `+5V` | En antiparalelo directo a bornes del motor |
@@ -118,7 +118,7 @@ En el Arduino Nano, el pin digital entrega entre $4.8\,\text{V}$ y $4.9\,\text{V
 
 ### 3.2 Esquema Eléctrico Completo: ESP32 DevKit V1 (Driver No Inversor NPN+PNP)
 
-En el ESP32 (lógica de 3.3V), la compuerta del IRLZ44N **no debe conectarse directamente** debido a la falta de garantía de $R_{DS(on)}$ a $\le 3.3\,\text{V}$. Se utiliza un **Driver No Inversor Bipolar de 2 Etapas (Q1 NPN + Q2 PNP)** que eleva la señal de compuerta a **+4.85V plenos**, garantizando que la bomba permanezca **apagada durante el arranque, reset o desconexión del microcontrolador**:
+En el ESP32 (lógica de 3.3V), la compuerta del IRLZ44N **no debe conectarse directamente** debido a la falta de garantía de $R_{DS(on)}$ a $\le 3.3\,\text{V}$. Se adopta como diseño principal un **Driver No Inversor Bipolar de 2 Etapas (Q1 NPN + Q2 PNP)** cuyo modelo analítico proyecta $V_{GS,\text{nom}} \approx 4.90\,\text{V}$ (y $V_{GS} \ge 4.50\,\text{V}$ bajo las hipótesis adoptadas de peor caso) y retención pasiva a $0\,\text{V}$ durante arranque, reset o desconexión (ambos comportamientos sujetos a verificación instrumental en `ACT-01` y `ACT-02`):
 
 ```text
                +5V Fuente Externa Regulada (2A - 3A)
@@ -146,7 +146,7 @@ En el ESP32 (lógica de 3.3V), la compuerta del IRLZ44N **no debe conectarse dir
     |                 |                    |               |              |
     |  Colector Q1 (Pin 3) ----------------+               |              |
     |                                                      |              |
-    |  Salida de Compuerta (+4.85V teóricos) <-------------+              |
+    |  Salida de Compuerta (~4.90V nom. mod.) <------------+              |
     |        |                                                            |
     |        +----------------------------------------> Pin 1: Gate       |
     |        |                                             |              |
@@ -181,7 +181,7 @@ En el ESP32 (lógica de 3.3V), la compuerta del IRLZ44N **no debe conectarse dir
 | **N2** | `BASE_Q1` | Terminal 2 de $R_1$ ($2.2\,\text{k}\Omega$) + Terminal 1 de $R_{pd1}$ ($10\,\text{k}\Omega$) + Base (Pin 2) de Q1 (2N2222A) | $0.0\,\text{V}$ (Corte Q1) | $\approx 0.70\,\text{V}$ ($V_{BE1(on)}$) | Reposo: $\le 0.05\,\text{V}$<br/>Activo: $0.65\,\text{V} - 0.75\,\text{V}$ | **Condición:** $V_{BE1} \approx 0.70\,\text{V}$ solo indica polarización directa de la unión B-E. **No demuestra por sí solo saturación**; debe verificarse simultáneamente midiendo en N3 que $V_{CE1} \le 0.20\,\text{V}$ con $I_B \approx 1.1\,\text{mA}$. |
 | **N3** | `COL_Q1` | Colector (Pin 3) de Q1 (2N2222A) + Terminal 1 de $R_2$ ($2.2\,\text{k}\Omega$) | $+5.0\,\text{V}$ (vía $R_2$ y $R_{pu}$) | $\approx 0.10\,\text{V}$ ($V_{CE1(sat)}$) | Reposo: $\ge 4.75\,\text{V}$<br/>Activo: $\le 0.20\,\text{V}$ | Si $V_{N3} > 0.30\,\text{V}$ en activo, Q1 no está en saturación profunda (revisar $R_1$, $R_{pd1}$ o ganancia del transistor). |
 | **N4** | `BASE_Q2` | Terminal 2 de $R_2$ ($2.2\,\text{k}\Omega$) + Terminal 1 de $R_{pu}$ ($10\,\text{k}\Omega$) + Base (Pin 2) de Q2 (2N3906) | $+5.0\,\text{V}$ ($V_{EB2} = 0\,\text{V}$, Corte Q2) | **$\approx 4.30\,\text{V}$** (Conducción nominal Q2)<br/>*o bien*<br/>**$\approx 0.98\,\text{V}$** (Divisor pasivo sin carga de base) | Reposo: $\ge 4.75\,\text{V}$<br/>Activo nominal: $4.20\,\text{V} - 4.40\,\text{V}$ | **Interpretación de condiciones:**<br/>- **$4.30\,\text{V}$:** Juntura E-B polarizada en directa con emisor a +5V ($V_{N4} = 5.0 - V_{EB2}$).<br/>- **$0.98\,\text{V}$:** Divisor Thévenin formado por $R_{pu}$ y $R_2$ con $V_{C1} \approx 0.10\,\text{V}$ cuando Q2 no carga el nodo. **No sentencia falla por sí solo**: debe interpretarse en conjunto con N3, N5 y comprobación de pines (E-B-C). |
-| **N5** | `GATE_Q3` | Colector (Pin 3) de Q2 (2N3906) + Terminal 1 de $R_{pd2}$ ($10\,\text{k}\Omega$) + Gate (Pin 1) de Q3 (IRLZ44N) | $0.0\,\text{V}$ (Corte Q3 / Bomba OFF) | $\approx 4.85\,\text{V} - 4.90\,\text{V}$ ($V_{CC} - V_{EC2(sat)}$) | Reposo: $\le 0.10\,\text{V}$ (ACT-01)<br/>Activo: $\ge 4.50\,\text{V}$ (ACT-02) | **Distinción crítica:** $V_{GS} \ge 4.50\,\text{V}$ garantiza sobrevoltaje de compuerta (*overdrive*), pero **no prueba por sí sola la conducción de carga**. La conducción efectiva se verifica midiendo $V_{DS}$ en N6 y el flujo de corriente en la carga. |
+| **N5** | `GATE_Q3` | Colector (Pin 3) de Q2 (2N3906) + Terminal 1 de $R_{pd2}$ ($10\,\text{k}\Omega$) + Gate (Pin 1) de Q3 (IRLZ44N) | $0.0\,\text{V}$ (Corte Q3 / Bomba OFF) | $\approx 4.90\,\text{V}$ (nominal modelo)<br/>$\ge 4.50\,\text{V}$ (condicional peor caso) | Reposo: $\le 0.10\,\text{V}$ (`ACT-01`)<br/>Activo: $\ge 4.50\,\text{V}$ (`ACT-02`) | **Alcance condicional:** $4.50\,\text{V}$ es resultado del modelo bajo hipótesis ($V_{CC}=4.75\,\text{V}$, $|V_{EC2(sat)}|=0.25\,\text{V}$), no garantía de fabricante; además, $V_{GS}$ no prueba corriente de carga sin medir $V_{DS}$ en N6. |
 | **N6** | `DRAIN_Q3` | Drain (Pin 2) de Q3 (IRLZ44N) + Ánodo de D1 (1N5819) + Retorno (-) de la Carga Conectada | $+5.0\,\text{V}$ *(con carga conectada)*<br/>*Flotante (si no hay carga)* | Prueba LED: $< 1\,\text{mV}$<br/>Prueba Bomba: $12 - 15\,\text{mV}$ | Prueba LED: LED ON.<br/>Prueba Bomba (ACT-03): $V_{DS} \le 50\,\text{mV}$ a $350\,\text{mA}$ nominal en agua. | **Dependencia de la carga instalada:**<br/>- En reposo, N6 mide $+5.0\,\text{V}$ solo si la carga (LED+resistencia o motor) está físicamente conectada a +5V.<br/>- El criterio $V_{DS} \le 50\,\text{mV}$ aplica a la corriente nominal de la bomba en agua; no es un valor universal para cualquier carga o corriente. |
 | **N7** | `VCC_5V` | Riel +5V Fuente + Pin VIN ESP32 + Emisor (Pin 1) Q2 + Terminal 2 de $R_{pu}$ + Cátodo D1 + Positivo Carga | $+5.0\,\text{V}$ | $+5.0\,\text{V}$ (con caída admisible por carga) | $4.75\,\text{V} - 5.25\,\text{V}$ | Riel común de potencia regulada. Verificar estabilidad bajo conmutación de carga. |
 | **N8** | `GND_COMUN` | GND Fuente + GND ESP32 + Emisor (Pin 1) Q1 + Terminal 2 de $R_{pd1}$ + Terminal 2 de $R_{pd2}$ + Source (Pin 3) Q3 | $0.0\,\text{V}$ | $0.0\,\text{V}$ | $0.0\,\text{V}$ ($\Delta V < 10\,\text{mV}$ en pistas/jumpers) | Masa de referencia unificada para todas las medidas instrumentales. |
@@ -193,13 +193,13 @@ En el ESP32 (lógica de 3.3V), la compuerta del IRLZ44N **no debe conectarse dir
    - Para que Q1 esté en saturación requerida, debe cumplirse la condición simultánea en N3 de que $V_{CE1} \le 0.20\,\text{V}$ (típicamente $0.08\text{--}0.15\,\text{V}$) con la corriente de base de diseño ($I_{B1} \approx 1.1\,\text{mA}$). Si N2 marca $0.70\,\text{V}$ pero N3 permanece en $\ge 0.50\,\text{V}$, Q1 se encuentra en región activa directa (inadecuada para conmutación).
 
 2. **Doble Régimen Nodal en N4 (`BASE_Q2`):**
-   - **Régimen Nominal ($\approx 4.30\,\text{V}$):** Se presenta cuando el transistor PNP Q2 está insertado correctamente y su juntura emisor-base conduce. Dado que su emisor está en el riel de $+5.0\,\text{V}$, la juntura fija el potencial de base en $V_B = V_E - V_{EB(on)} \approx 5.0\,\text{V} - 0.70\,\text{V} = 4.30\,\text{V}$. La corriente de base resultante es $I_{B2} \approx 1.84\,\text{mA}$, llevando a Q2 a saturación profunda ($\beta_{forced} \approx 0.26$).
+   - **Régimen Nominal ($\approx 4.30\,\text{V}$):** Se presenta cuando el transistor PNP Q2 está insertado correctamente y su juntura emisor-base conduce. Dado que su emisor está en el riel de $+5.0\,\text{V}$, la juntura fija el potencial de base en $V_B = V_E - V_{EB(on)} \approx 5.0\,\text{V} - 0.70\,\text{V} = 4.30\,\text{V}$. La corriente de base resultante es $I_{B2} \approx 1.84\,\text{mA}$, con relación de corriente forzada nominal $\beta_{f,Q2} \approx 0.26 \ll 10$.
    - **Régimen de Circuito Abierto / Divisor Thévenin Pasivo ($\approx 0.98\,\text{V}$):** Ocurre si la base de Q2 no drena corriente (transistor ausente, pata de base no conectada o juntura interna abierta). En ese escenario, el nodo N4 queda determinado por el divisor resistivo formado por $R_{pu} = 10\,\text{k}\Omega$ conectada a $+5.0\,\text{V}$ y $R_2 = 2.2\,\text{k}\Omega$ conectada al colector saturado de Q1 ($V_{C1} \approx 0.10\,\text{V}$):
      $$V_{N4(unloaded)} = 0.10\,\text{V} + (5.0\,\text{V} - 0.10\,\text{V}) \times \frac{2.2\,\text{k}\Omega}{10\,\text{k}\Omega + 2.2\,\text{k}\Omega} = 0.10 + 4.90 \times \frac{2.2}{12.2} \approx \mathbf{0.98\,\text{V}}$$
    - **Protocolo de Diagnóstico:** Obtener $\approx 0.98\,\text{V}$ en N4 no debe diagnosticarse apresuradamente como "avería" sin antes contrastar: (a) que N3 esté en $\le 0.20\,\text{V}$, (b) que la orientación física de las patas de Q2 corresponda a Pin 1=Emisor, Pin 2=Base, Pin 3=Colector, y (c) que en N5 no aparezca tensión alta.
 
 3. **Distinción entre Excitación de Compuerta N5 ($V_{GS}$) y Conducción N6 ($V_{DS}$):**
-   - Una tensión de compuerta de $4.85\text{--}4.90\,\text{V}$ en N5 ($V_{GS}$) certifica que el pre-driver bipolar funciona y entrega la sobretensión de compuerta requerida (*gate overdrive*) para llevar al MOSFET IRLZ44N a su región óhmica de mínima resistencia.
+   - Una tensión de compuerta medida $\ge 4.50\,\text{V}$ en banco ($\approx 4.90\,\text{V}$ nominal en modelo) sobre N5 ($V_{GS}$) confirma que el pre-driver bipolar entrega la sobretensión de compuerta requerida (*gate overdrive*) al MOSFET `IRLZ44N`.
    - Sin embargo, **$V_{GS} \ge 4.50\,\text{V}$ no demuestra por sí sola que la corriente circule por la carga**. Para validar la conmutación efectiva del canal, es mandatorio medir la tensión de drenador $V_{DS}$ en el nodo N6:
      * Si el canal conduce normalmente, $V_{DS} = I_D \times R_{DS(on)}$ debe caer a valores mínimos.
      * Si N5 está en $4.90\,\text{V}$ pero N6 permanece en $+5.0\,\text{V}$, el MOSFET tiene el canal abierto, la fuente desconectada de GND o la pata de compuerta dañada.
@@ -233,7 +233,7 @@ En el ESP32 (lógica de 3.3V), la compuerta del IRLZ44N **no debe conectarse dir
   * `Emisor (E)`: Conectado directamente al riel de potencia de $+5.0\,\text{V}$ DC regulado.
   * `Base (B)`: Conectada al Colector de Q1 mediante $R_2 = 2.2\,\text{k}\Omega$ y polarizada a $+5.0\,\text{V}$ mediante $R_{pu} = 10\,\text{k}\Omega$.
   * `Colector (C)`: Conectado directamente a la Compuerta (Gate) de Q3 (M1), con resistencia pull-down de descarga $R_{pd2} = 10\,\text{k}\Omega$ a GND.
-- **M1 / Q3 (N-MOSFET Logic-Level Vishay IRLZ44N - TO-220):**
+- **M1 / Q3 (N-MOSFET Logic-Level Infineon / IR `IRLZ44N` — Doc. `PD-91338`, TO-220):**
   * Pin 1 (`Gate`): Desde Colector de Q2, retenido a GND mediante $R_{pd2} = 10\,\text{k}\Omega$.
   * Pin 2 / Tab (`Drain`): Conectado al borne negativo de la microbomba JT-DC3W (retorno conmutado).
   * Pin 3 (`Source`): Conectado directamente a la masa común (GND).
@@ -241,20 +241,26 @@ En el ESP32 (lógica de 3.3V), la compuerta del IRLZ44N **no debe conectarse dir
   * `Cátodo` (banda plateada): Conectado al borne positivo (+5V) del motor.
   * `Ánodo`: Conectado al borne negativo (Drain de Q3) del motor. Montaje en antiparalelo directo sobre los bornes de la bomba.
 
-#### Cálculo Nodal Riguroso de Polarización y Margen de Saturación:
-1. **Etapa de Entrada Q1 (NPN):**
-   - El circuito equivalente de Thévenin en la base de Q1, formado por el GPIO a $3.3\,\text{V}$, $R_1 = 2.2\,\text{k}\Omega$ y $R_{pd1} = 10\,\text{k}\Omega$, entrega $V_{TH} = 3.3 \times \frac{10}{12.2} \approx 2.70\,\text{V}$ y $R_{TH} = 2.2 \parallel 10 \approx 1.80\,\text{k}\Omega$.
-   - Con $V_{BE1(sat)} \approx 0.70\,\text{V}$, la corriente real de base es:
-     $$I_{B1} = \frac{2.70\,\text{V} - 0.70\,\text{V}}{1800\,\Omega} \approx 1.11\,\text{mA}$$
-2. **Etapa Intermedia Q2 (PNP):**
-   - Con Q1 saturado ($V_{CE1(sat)} \approx 0.1\,\text{V}$), la corriente total de colector drenada a través de $R_2 = 2.2\,\text{k}\Omega$ es $I_{C1} = \frac{5.0 - 0.7 - 0.1}{2200} \approx 1.91\,\text{mA}$.
-   - Descontando la corriente de fuga de $R_{pu}$ ($0.7\,\text{V} / 10\,\text{k}\Omega = 0.07\,\text{mA}$), la corriente neta de base de Q2 es $I_{B2} \approx 1.84\,\text{mA}$.
-   - Ganancia forzada en Q1: $\beta_{forced, Q1} = \frac{1.91\,\text{mA}}{1.11\,\text{mA}} \approx 1.72 \ll 10$. **Saturación ultra profunda asegurada.**
-3. **Etapa de Salida hacia Compuerta:**
-   - En régimen continuo, la compuerta del MOSFET solo drena la corriente de la resistencia de descarga $R_{pd2} = 10\,\text{k}\Omega$:
-     $$I_{C2} = \frac{V_{Gate}}{10000\,\Omega} \approx \frac{4.85\,\text{V}}{10000\,\Omega} \approx 0.485\,\text{mA}$$
-   - Ganancia forzada en Q2: $\beta_{forced, Q2} = \frac{0.485\,\text{mA}}{1.84\,\text{mA}} \approx 0.26 \ll 10$. **Saturación ultra profunda asegurada.**
-   - Tensión de compuerta resultante: $V_{Gate} = V_{fuente} - V_{EC2(sat)} \approx 5.0\,\text{V} - 0.10\,\text{V} \approx \mathbf{4.90\,\text{V}}$ (en banco real con caída de carga en la fuente: $4.70\,\text{V} - 4.90\,\text{V}$), garantizando holgadamente que el IRLZ44N opere dentro de su especificación garantizada de $R_{DS(on)} \le 0.035\,\Omega$.
+#### Cálculo Nodal Riguroso (Nominal y Peor Caso con Hipótesis Explícitas):
+- **Referencias técnicas primarias:**
+  - `Q1` (`2N2222A` / `PN2222A`): **onsemi `PN2222A/D`** (`https://www.onsemi.com/download/data-sheet/pdf/pn2222a-d.pdf`) — $V_{CE(sat)} \le 0.30\,\text{V}$ tabulado a $I_C = 150\,\text{mA}, I_B = 15\,\text{mA}$ ($\beta_f = 10$); para $I_C \approx 2\,\text{mA}$ existen curvas típicas ($V_{CE(sat),\text{típ}} < 0.10\,\text{V}$), no el mismo límite tabular.
+  - `Q2` (`2N3906`): **onsemi `2N3906/D`** (`https://www.onsemi.com/download/data-sheet/pdf/2n3906-d.pdf`) — $|V_{CE(sat)}| \le 0.25\,\text{V}$ tabulado a $I_C = -10\,\text{mA}, I_B = -1.0\,\text{mA}$ ($\beta_f = 10$); en torno a $I_C \approx -0.5\,\text{mA}$ solo publica curvas típicas (Fig. 11 y Fig. 12, $|V_{CE(sat),\text{típ}}| < 0.10\,\text{V}$).
+  - `Q3` (`IRLZ44N`): **Infineon / International Rectifier `PD-91338`** (`irlz44npbf.pdf`) — a $T_J = 25^\circ\text{C}$: $R_{DS(on)} \le 0.022\,\Omega$ ($V_{GS}=10\,\text{V}$), $\le 0.025\,\Omega$ ($V_{GS}=5.0\,\text{V}, I_D=25\,\text{A}$) y $\le 0.035\,\Omega$ ($V_{GS}=4.0\,\text{V}, I_D=21\,\text{A}$); $|I_{GSS}| \le 100\,\text{nA}$; $C_{iss} = 1700\,\text{pF}$; $Q_g(\text{máx}) = 48\,\text{nC}$ (a $V_{DS}=44\,\text{V}, I_D=25\,\text{A}$). *(Nota H-01: el documento Vishay `#91328` corresponde al `IRLZ44` sin sufijo `N`, con $0.028 / 0.035 / 0.040\,\Omega$).*
+  - `ESP32` (`GPIO 18`): **Espressif Datasheet** — $V_{OH,\text{mín}} = 0.8 \times 3.3\,\text{V} = 2.64\,\text{V}$.
+1. **Etapa de Entrada Q1 (NPN — Nominal y Peor Caso con resistencias $\pm 5\%$ y $V_{CC} \in [4.75\,\text{V}; 5.25\,\text{V}]$):**
+   - *Nominal ($3.3\,\text{V}$, $2.2\,\text{k}\Omega$, $10\,\text{k}\Omega$):* $V_{TH1} \approx 2.70\,\text{V}$, $R_{TH1} \approx 1.80\,\text{k}\Omega \implies I_{B1,\text{nom}} \approx 1.11\,\text{mA}$ e $I_{C1,\text{nom}} \approx 1.91\,\text{mA}$ ($\beta_{f,Q1,\text{nom}} \approx 1.72$).
+   - *Peor caso ($\beta_{f,Q1,\text{máx}} = I_{C1,\text{máx}} / I_{B1,\text{mín}}$):* Con $V_{OH,\text{mín}} = 2.64\,\text{V}$, $R_{1,\text{máx}} = 2.31\,\text{k}\Omega$, $R_{pd1,\text{mín}} = 9.50\,\text{k}\Omega$ y $V_{BE1,\text{máx}} = 0.80\,\text{V}$, se obtiene $V_{TH1,\text{mín}} = 2.124\,\text{V}$, $R_{TH1,\text{máx}} = 1.858\,\text{k}\Omega$ e **$I_{B1,\text{mín}} = 0.713\,\text{mA}$**. El colector máximo (con $V_{CC,\text{máx}} = 5.25\,\text{V}, |V_{EB2,\text{mín}}| = 0.65\,\text{V}, V_{CE1(sat),\text{mín}} = 0.05\,\text{V}, R_{2,\text{mín}} = 2.09\,\text{k}\Omega$) es **$I_{C1,\text{máx}} = 2.177\,\text{mA}$** ($1.558\,\text{mA}$ a $4.75\,\text{V}$), dando **$\beta_{f,Q1,\text{máx}} = \frac{2.177}{0.713} = 3.05 < 10$** ($2.19$ a $4.75\,\text{V}$).
+   - *Alcance del modelo en Q1:* Dado que la tabla de `PN2222A/D` especifica $V_{CE(sat)}$ a $150\,\text{mA}/15\,\text{mA}$, el valor $V_{CE1(sat)} \le 0.30\,\text{V}$ se adopta como **resultado del modelo bajo las hipótesis de excitación adoptadas, pendiente de validación en banco (`ACT-02`)**, no como garantía contractual absoluta.
+2. **Etapa Intermedia Q2 (PNP — Nominal y Peor Caso):**
+   - *Corriente de base saliente mínima ($I_{B2,\text{mín}}$):* Ocurre a $V_{CC,\text{mín}} = 4.75\,\text{V}$, $|V_{EB2,\text{máx}}| = 0.85\,\text{V}$, hipótesis $V_{CE1(sat),\text{máx}} = 0.30\,\text{V}$, $R_{2,\text{máx}} = 2.31\,\text{k}\Omega$ y $R_{pu,\text{mín}} = 9.50\,\text{k}\Omega$:
+     $$I_{B2,\text{mín}} = \frac{4.75 - 0.85 - 0.30}{2.31\,\text{k}\Omega} - \frac{0.85}{9.50\,\text{k}\Omega} = 1.5584 - 0.0895 = \mathbf{1.469\,\text{mA}}$$
+   - *Corriente de colector máxima en DC ($I_{C2,\text{máx}}$, con $|I_{GSS}| \le 100\,\text{nA}$ y $R_{pd2,\text{mín}} = 9.50\,\text{k}\Omega$):* En cruce absoluto ($V_{CC,\text{máx}} = 5.25\,\text{V}, |V_{EC2,\text{mín}}| = 0.05\,\text{V}$), **$I_{C2,\text{máx}} = 0.547\,\text{mA}$**; en el mismo riel bajo de $4.75\,\text{V}$, **$I_{C2,\text{máx}(4.75\text{V})} = 0.495\,\text{mA}$** ($0.474\,\text{mA}$ con $|V_{EC2}| = 0.25\,\text{V}$).
+   - *Relación forzada máxima:* **$\beta_{f,Q2,\text{máx}} = \frac{0.547}{1.469} = 0.372 \ll 10$** ($0.337$ a $4.75\,\text{V}$).
+3. **Tensión Condicional en Compuerta (Nodo N5):**
+   - **Resultado nominal del modelo:** $V_{GS,\text{nom}} = 5.00\,\text{V} - 0.10\,\text{V} = \mathbf{4.90\,\text{V}}$.
+   - **Resultado condicional de peor caso:** Adoptando $|V_{EC2(sat)}| = 0.25\,\text{V}$ como **hipótesis de cálculo conservadora** (por analogía con el límite tabular de `2N3906/D` a $-10\,\text{mA}$, no como garantía del fabricante a $-0.5\,\text{mA}$) y $V_{CC,\text{mín}} = 4.75\,\text{V}$:
+     $$V_{GS,\text{mín(modelo)}} = 4.75\,\text{V} - 0.25\,\text{V} = \mathbf{4.50\,\text{V}}$$
+   - **Triple distinción obligatoria (Modelo vs. Garantía de Hoja Técnica vs. Medición Experimental):** (1) *Resultado matemático del modelo:* $V_{GS,\text{nom}} \approx 4.90\,\text{V}$ y $V_{GS,\text{mín(modelo)}} = 4.50\,\text{V}$ obtenidos de las ecuaciones e hipótesis asumidas; (2) *Resultado garantizado por fabricante:* válido únicamente en los puntos discretos tabulados (`PN2222A/D` a $150\,\text{mA}$, `2N3906/D` a $-10\,\text{mA}$, `PD-91338` a $T_J=25^\circ\text{C}$ en $V_{GS}=10\,\text{V}, 5.0\,\text{V}$ y $4.0\,\text{V}$, sin que ninguna interpolación entre $4.0\,\text{V}$ y $5.0\,\text{V}$ constituya garantía contractual); y (3) *Resultado experimental:* valor medido físicamente en el montaje real durante `ACT-02` y `ACT-03.1`, único que valida la etapa.
 
 ---
 
@@ -263,7 +269,7 @@ En el ESP32 (lógica de 3.3V), la compuerta del IRLZ44N **no debe conectarse dir
 ### 4.1 Comportamiento del MOSFET a 3.3V (ESP32) vs 5V (Nano) y Diseño de Etapa de Potencia
 
 - **Arduino Nano V3 (Accionamiento Directo a 5.0V):**
-  - El pin `D3` entrega $V_{OH} \ge 4.2\,\text{V}$ (típicamente $4.8\,\text{V}-4.9\,\text{V}$ con carga mínima de compuerta). Según la hoja de datos oficial de Vishay Siliconix (Doc #91328), el MOSFET **IRLZ44N** especifica una resistencia máxima garantizada de $R_{DS(on)} \le 0.035\,\Omega$ bajo la condición estandarizada $V_{GS} = 5.0\,\text{V}, I_D = 25\,\text{A}, T_J = 25^\circ\text{C}$ (y $\le 0.040\,\Omega$ a $V_{GS} = 4.0\,\text{V}, I_D = 21\,\text{A}$). Para niveles de excitación entre $4.2\,\text{V}$ y $4.9\,\text{V}$, la resistencia estática de catálogo queda acotada en ese rango a $25^\circ\text{C}$, con una disipación nominal calculada de $\approx 4.3\,\text{mW}$ a $350\,\text{mA}$, sujeta al coeficiente térmico positivo de la juntura y a la verificación experimental de la tensión real $V_{GS}$ y caída $V_{DS}$ en banco.
+  - El pin `D3` entrega $V_{OH} \ge 4.2\,\text{V}$ (típicamente $4.8\,\text{V}-4.9\,\text{V}$ con carga estática mínima de compuerta). Según la hoja de datos oficial de **Infineon / International Rectifier (`PD-91338`)**, el MOSFET **`IRLZ44N`** especifica a $T_J = 25^\circ\text{C}$ una resistencia máxima garantizada de $R_{DS(on)} \le 0.025\,\Omega$ a $V_{GS} = 5.0\,\text{V}, I_D = 25\,\text{A}$ y $\le 0.035\,\Omega$ a $V_{GS} = 4.0\,\text{V}, I_D = 21\,\text{A}$ *(mientras que el `IRLZ44` sin `N` de Vishay `#91328` especifica $0.035\,\Omega$ y $0.040\,\Omega$)*. La hoja técnica solo garantiza límites en los puntos discretos $V_{GS}=10\,\text{V}$, $5.0\,\text{V}$ y $4.0\,\text{V}$ (cualquier interpolación entre $4.0\,\text{V}$ y $5.0\,\text{V}$ carece de valor contractual; para $4.0\,\text{V} \le V_{GS} < 5.0\,\text{V}$ el único techo discreto tabulado a $25^\circ\text{C}$ es $\le 0.035\,\Omega$ a $4.0\,\text{V}$). La aceptación práctica depende exclusivamente de las mediciones experimentales de $V_{GS}$, $V_{DS}$ e $I_D$ en `ACT-02` y `ACT-03.1`.
 - **ESP32 DevKit V1 (Accionamiento a 3.3V) y Desafío de Nivel Lógico:**
   - **Limitación del IRLZ44N a 3.3V:** No posee especificación garantizada de $R_{DS(on)}$ para tensiones de compuerta $\le 3.3\,\text{V}$ (solo especifica hasta $4.0\,\text{V}$ en tabla). Aunque las curvas típicas de laboratorio a $25^\circ\text{C}$ muestran conducción suficiente para cargas de $300\,\text{mA}$, una unidad con tolerancia desfavorable ($V_{GS(th)} \to 2.0\,\text{V}$) reduce el sobrevoltaje efectivo a $\approx 1.1\,\text{V}$.
   - **FQP30N06L:** **DESCARTADO FORMALMENTE** para el ESP32. Su $V_{GS(th)}$ alcanza hasta $2.5\,\text{V}$, dejando un margen de sobretensión inaceptable de apenas $0.8\,\text{V}$ a 3.3V.
@@ -285,7 +291,7 @@ Si se conecta `GPIO 18` a la base de un NPN con el colector a la compuerta del M
 - **Conclusión:** Esta topología invierte la lógica y viola el principio de diseño a prueba de fallos (*fail-safe*). **NO debe montarse.**
 
 ##### 2. Solución Discreta Oficial: Driver No Inversor de 2 Etapas (NPN + PNP)
-Para lograr traslación de nivel de 3.3V a 5.0V con lógica no inversora y apagado garantizado en el arranque:
+Para lograr traslación de nivel de 3.3V a 5.0V con lógica no inversora y retención pasiva en corte durante el arranque (sujeta a verificación en ACT-01.1 y ACT-01.2):
 
 ```
                   +5V Fuente Externa (Riel de Potencia)
@@ -310,12 +316,12 @@ GPIO 18 ---[R1: 2.2 kΩ]------------| (NPN TO-92) |                       [R_pd2
 
 **Tabla de Estados del Driver No Inversor NPN+PNP:**
 
-| Estado de GPIO 18 | Transistor Q1 (NPN) | Transistor Q2 (PNP) | Tensión en Gate IRLZ44N | Estado de la Bomba | Evaluación de Seguridad |
+| Estado de GPIO 18 | Transistor Q1 (NPN) | Transistor Q2 (PNP) | Tensión en Gate IRLZ44N (Modelo) | Estado de la Bomba | Estado de Verificación |
 | :--- | :---: | :---: | :---: | :---: | :--- |
-| **Arranque / Reset / High-Z** | Corte ($I_B = 0$) | Corte ($V_{EB} = 0$) | $0.00\,\text{V}$ (vía $R_{pd2}$) | **APAGADA** | **Fail-Safe Garantizado** |
-| **Reposo Normal (`LOW = 0V`)** | Corte | Corte | $0.00\,\text{V}$ | **APAGADA** | Seguro |
-| **Riego Activo (`HIGH = 3.3V`)** | Saturado ($I_B \approx 1.2\,\text{mA}$) | Saturado ($I_B \approx 1.9\,\text{mA}$) | **$\approx 4.85\,\text{V}$** | **ENCENDIDA** | **Saturación Plena ($R_{DS(on)} \le 0.035\,\Omega$)** |
-| **Fallo / Cable Desconectado** | Corte (vía $R_{pd1}$) | Corte | $0.00\,\text{V}$ | **APAGADA** | Seguro ante desconexión |
+| **Arranque / Reset / High-Z** | Corte ($I_B = 0$) | Corte ($V_{EB} = 0$) | $0.00\,\text{V}$ (vía $R_{pd2}$) | **APAGADA** | Diseño fail-safe pasivo (pendiente `ACT-01.1` y `ACT-01.2`) |
+| **Reposo Normal (`LOW = 0V`)** | Corte | Corte | $0.00\,\text{V}$ | **APAGADA** | Pendiente medición `ACT-01.1` |
+| **Riego Activo (`HIGH = 3.3V`)** | Saturado en modelo ($\beta_{f,\text{máx}} = 3.05$) | Saturado en modelo ($\beta_{f,\text{máx}} = 0.372$) | **$\approx 4.90\,\text{V}$ nom. / $\ge 4.50\,\text{V}$ cond.** | **ENCENDIDA** | Resultado condicional del modelo (pendiente `ACT-02` / `ACT-03`) |
+| **Fallo / Cable Desconectado** | Corte (vía $R_{pd1}$) | Corte | $0.00\,\text{V}$ | **APAGADA** | Pendiente medición `ACT-01.1` y `ACT-05.2` |
 
 ##### 3. Opción de Circuito Integrado: Buffer TTL CMOS 74AHCT125 / 74HCT14
 En lugar de transistores discretos, puede emplearse una compuerta buffer no inversora compatible TTL alimentada a 5.0V (como el **74AHCT125** con $\overline{\text{OE}}$ a GND, o dos compuertas inversoras en cascada de un **74HCT14**):
@@ -325,7 +331,7 @@ En lugar de transistores discretos, puede emplearse una compuerta buffer no inve
 
 ##### 4. Criterio de Selección y Descarte de Módulos Comerciales:
 - **Módulos de Relé Electromecánicos (DESCARTADOS OFICIALMENTE):** Quedan descartados como opción recomendada para el ESP32. Un módulo con lógica LOW-trigger encendería la bomba involuntariamente durante el reinicio del ESP32 (estado High-Z/LOW). Aunque un módulo cuente con jumper HIGH-trigger, la caída de tensión en el optoacoplador y LED interno diseñado para 5V suele provocar conmutaciones erráticas con señales lógicas de 3.3V, y no ofrece garantía fail-safe frente a transitorios de alimentación.
-- **Módulo MOSFET HW-517 / XY-MOS (Dual AOD4184A):** Este módulo conecta la señal de entrada directamente a las compuertas de dos MOSFETs en paralelo con resistencia pull-down a GND (activo en alto). Aunque comercialmente se especifica desde 3.3V, debido a la dispersión de $V_{GS(th)}$ entre lotes, el reparto de corriente no es perfectamente simétrico. Por tanto, antes de validar su uso definitivo en el montaje, debe verificarse en banco que a 3.3V la caída total $V_{DS} \le 50\,\text{mV}$ bajo el consumo real de la bomba.
+- **Módulo MOSFET `HW-517` / `XY-MOS` (Alternativa Provisional No Verificada):** Distintos fabricantes comercializan módulos bajo el código `HW-517` con topologías divergentes (dual `AOD4184A` directo o variantes con optoacoplador e inversión lógica). Se mantiene **no verificado**: queda prohibido adquirirlo o montarlo como sustituto directo sin antes levantar el esquemático real del ejemplar físico, comprobar polaridad no inversora en boot/reset (`ACT-01.1`/`ACT-01.2`) y medir $V_{DS} \le 50\,\text{mV}$ bajo carga real (`ACT-03.1`).
 
 ### 4.2 Selección del Diodo Flyback: Recirculación Inductiva
 - **1N4148:** Es un diodo de señal pequeña de conmutación rápida. Su corriente continua máxima es de solo $150\,\text{mA}-200\,\text{mA}$. La microbomba genera corrientes de arranque y picos de desconexión inductiva de más de $500\,\text{mA}-800\,\text{mA}$. **El 1N4148 puede destruirse en cortocircuito y dañar la etapa de conmutación.**
@@ -346,10 +352,11 @@ El interruptor de flotador opera como un contacto seco normalmente abierto/cerra
 > [!IMPORTANT] Orientación Mecánica Obligatoria de la Boya
 > Para asegurar el comportamiento **Fail-Safe** (que un cable suelto simule tanque vacío y bloquee el bombeo), el sensor de flotador se debe montar de modo que cuando el agua empuje la boya hacia arriba, el contacto magnético interno se **CIERRE** (conduzca a GND). Si tu modelo de boya viene invertido de fábrica, extrae el anillo de seguridad tipo circlip en la punta, dale la vuelta 180° a la boya cilíndrica y vuelve a colocar el seguro.
 
-### 4.5 Resistencia de Compuerta ($R_G$) y Tiempo de Conmutación
-- **Resistencia en serie ($1\,\text{k}\Omega$):** Con una capacidad de entrada típica $C_{iss} \approx 1700\,\text{pF}$ en el IRLZ44N, la constante de tiempo es $\tau = R \cdot C = 1000 \cdot 1.7\times 10^{-9} \approx 1.7\,\mu\text{s}$. El tiempo de conmutación total ($3\tau$) es $\approx 5.1\,\mu\text{s}$.
-- Como la bomba conmuta en corriente continua estacionaria (encendido por segundos) y **no mediante modulación PWM a alta frecuencia**, un tiempo de subida de $5\,\mu\text{s}$ es perfectamente seguro, no produce pérdidas térmicas apreciables y protege el pin del microcontrolador limitando el pico de corriente de carga de compuerta a solo $I_{peak} \le 3.3\,\text{mA}$ en ESP32 y $5\,\text{mA}$ en Nano.
-- **Resistencia Pull-Down ($10\,\text{k}\Omega$):** Conectada directamente entre Gate y Source (GND). Garantiza que durante el encendido del microcontrolador (cuando los pines GPIO se encuentran en alta impedancia o modo flotante antes de ejecutar `setup()`), la compuerta se mantenga sólidamente a $0\,\text{V}$, impidiendo cualquier encendido espurio o pulso transitorio de la bomba.
+### 4.5 Dinámica Orientativa de Compuerta y Restricción a Conmutación Estática ON/OFF
+- **Arduino Nano (`R_G_NANO` $= 1\,\text{k}\Omega$):** Con $C_{iss} \approx 1700\,\text{pF}$ (`PD-91338`), la constante RC lineal es $\tau \approx 1.7\,\mu\text{s}$ ($4\tau \approx 6.8\,\mu\text{s}$), limitando el pico de corriente sobre `D3` a $\le 5\,\text{mA}$.
+- **ESP32 (Carga activa por `Q2` y descarga pasiva por $R_{pd2} = 10\,\text{k}\Omega$):** Al apagar (`GPIO 18 = LOW`), `Q2` entra en corte y la compuerta se descarga pasivamente por $R_{pd2} = 10\,\text{k}\Omega$ ($\tau_{\text{off}} \approx 10\,\text{k}\Omega \times 1.7\,\text{nF} = 17\,\mu\text{s}$; $4\tau_{\text{off}} \approx 68\,\mu\text{s}$ en modelo RC lineal, y **estimación teórica orientativa de $\approx 100\text{--}220\,\mu\text{s}$** si se proyecta la descarga completa de $Q_g \le 48\,\text{nC}$ especificada a $V_{DS}=44\,\text{V}, I_D=25\,\text{A}$). Estos valores **no constituyen una cota superior garantizada ni sustituyen la caracterización real con osciloscopio en `ACT-04`**.
+- **Restricción de modo ON/OFF (Prohibición de PWM):** En Smart FloraCare v1.2.1 la bomba opera exclusivamente en conmutación estática ON/OFF (`digitalWrite`, ciclos de segundos). **Queda prohibido utilizar esta etapa para modulación PWM** sin rediseñar la descarga de compuerta (pull-down activo) y caracterizar pérdidas dinámicas en osciloscopio.
+- **Resistencia Pull-Down ($10\,\text{k}\Omega$):** Conectada entre Gate y Source (GND) para drenar la compuerta a $0\,\text{V}$ durante el arranque o reinicio del MCU (cuya verificación física de ausencia de pulsos breves requiere la captura `ACT-01.2`).
 
 ### 4.6 Intercambio Seguro de Controladores (Uso Alternado sin Retroalimentación)
 - Como ambas variantes comparten el mismo montaje hidráulico y fuente de 5V, **NUNCA** se deben conectar los dos microcontroladores al mismo tiempo a la bomba.

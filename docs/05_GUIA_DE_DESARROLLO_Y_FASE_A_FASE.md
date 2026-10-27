@@ -40,7 +40,7 @@ Los sensores capacitivos v1.2 poseen componentes electrónicos expuestos en el t
 
 ## 📌 Fase 2: Montaje y Chequeos en Frío (Cold Checks)
 
-Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes ensayos con un Multímetro Digital (DMM) en modo continuidad (bip) y resistencia ($\Omega$):
+Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes ensayos con un Multímetro Digital (DMM) en modo continuidad (bip) y resistencia ($\Omega$). **Auditoría óhmica previa fuera del circuito ($\pm 5\%$):** medir cada resistor ($2.2\,\text{k}\Omega \in [2.09; 2.31]\,\text{k}\Omega$; $10\,\text{k}\Omega \in [9.50; 10.50]\,\text{k}\Omega$; $1\,\text{k}\Omega \in [0.95; 1.05]\,\text{k}\Omega$; $220\,\Omega \in [209; 231]\,\Omega$; carga ficticia $15\,\Omega \in [14.25; 15.75]\,\Omega$), verificar ausencia de cortocircuito entre `+5V`, `+3.3V` y `GND`, y confirmar orientación del cátodo del `1N5819` hacia `+5V`.
 
 ### 2.1 Conexiones de Circuito por Variante
 
@@ -74,24 +74,23 @@ Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes
     - Gate (Pin 1): Conectada al Colector de Q2. Resistencia pull-down $R_{pd2} = 10\,\text{k}\Omega$ entre Gate y `GND`.
     - Drain (Pin 2): Conectado al polo negativo (`-`) de la microbomba JT-DC3W.
     - Source (Pin 3): Conectado sólidamente a `GND` común.
-  - **Alternativa Comercial HW-517:** Clasificada como `PENDIENTE DE EVALUACIÓN / NO RECOMENDADO`. Sujeto a verificación previa de esquemático y caída $V_{DS} \le 50\,\text{mV}$.
+  - **Alternativa Comercial Provisional No Verificada (`HW-517`):** Prohibido adquirir o montar como reemplazo directo sin levantar antes su esquemático real, verificar polaridad no inversora en boot/reset y medir $V_{DS} \le 50\,\text{mV}$ bajo carga real.
 
 ---
 
 ## 🔬 Protocolo Oficial de Pruebas Físicas de Banco (ACT-01 a ACT-06)
 
 > [!WARNING]
-> Las siguientes pruebas corresponden al protocolo de validación instrumental sobre hardware real.
-> **Ninguna de estas pruebas ha sido ejecutada en silicio todavía**; todos los procedimientos se encuentran en estado de preparación técnica controlada. Está estrictamente prohibido marcar una prueba como aprobada sin contar con mediciones numéricas firmadas en banco.
+> **Prerrequisito Metrológico y Estado Real:** Ninguna de estas pruebas ha sido ejecutada todavía en hardware. Antes de registrar cualquier medición es obligatorio anotar en la bitácora: **marca, modelo, rango, resolución, exactitud especificada por el fabricante en dicho rango y estado de verificación/calibración** de cada instrumento, junto con la corriente de carga y los puntos exactos de contacto. Las pruebas que exigen osciloscopio (`ACT-01.2`, `ACT-03.2`, `ACT-04`, `ACT-05.3b`) permanecen en `PENDIENTE DE INSTRUMENTACIÓN EXTERNA`.
 
 ---
 
-### ACT-01: Estado Seguro del Driver (Fail-Safe en Reposo, Boot y Reset)
-1. **Identificador:** `ACT-01`
+### ACT-01: Estado Seguro del Driver en Reposo, Encendido, Reinicio y Recuperación (`ACT-01.1` y `ACT-01.2`)
+1. **Identificador:** `ACT-01` (dividida en comprobación preliminar **`ACT-01.1`** con DMM+LED y captura temporal obligatoria **`ACT-01.2`** con osciloscopio).
 2. **Objetivo:** Verificar cuantitativamente que la etapa de potencia y la compuerta del MOSFET permanecen en corte estricto ($V_{GS} < 0.10\,\text{V}$) durante el arranque inicial, el reinicio físico, la desconexión del cable de señal y el estado de alta impedancia (High-Z) del microcontrolador.
 3. **Riesgo cubierto:** F-07 (Inversión lógica, compuerta flotante o activación espuria de bomba durante transitorios de encendido).
 4. **Equipo e instrumentos:** Multímetro Digital (DMM) calibrado (resolución $\le 1\,\text{mV}$) y osciloscopio digital (acoplamiento DC, base de tiempo 200 ms/div, trigger en flanco de subida de riel 5V).
-5. **Montaje:** Driver NPN+PNP montado en protoboard con Q1 (2N2222A), Q2 (2N3906), Q3 (IRLZ44N) y resistencias ($R_1 = 2.2\,\text{k}\Omega$, $R_{pd1} = 10\,\text{k}\Omega$, $R_2 = 2.2\,\text{k}\Omega$, $R_{pu} = 10\,\text{k}\Omega$, $R_{pd2} = 10\,\text{k}\Omega$). Carga simulada con LED indicador + resistencia de 330 Ω entre +5V y Drain. Bomba mecánica desconectada.
+5. **Montaje:** Driver NPN+PNP montado en protoboard con Q1 (`2N2222A`), Q2 (`2N3906`), Q3 (`IRLZ44N`) y resistencias ($R_1 = 2.2\,\text{k}\Omega$, $R_{pd1} = 10\,\text{k}\Omega$, $R_2 = 2.2\,\text{k}\Omega$, $R_{pu} = 10\,\text{k}\Omega$, $R_{pd2} = 10\,\text{k}\Omega$; en Nano, $R_G = 1\,\text{k}\Omega$ y $R_{pd} = 10\,\text{k}\Omega$ desde `D3`). Carga simulada con LED indicador + resistencia de $330\,\Omega$ entre `+5V` y `Drain` (`ACT-01.1`) y sondas 10X DC en `Pin 1 (Gate)` y `+5V`/`GPIO 18`/`D3` con masa corta en `Pin 3 (Source)` (`ACT-01.2`). Bomba mecánica desconectada.
 6. **Precondiciones:** Fuente externa de 5.0 V regulada y estabilizada. Microcontrolador programado con firmware v1.2.1.
 7. **Procedimiento:**
    - Medir $V_{GS}$ con multímetro entre Pin 1 (Gate) y Pin 3 (Source) del IRLZ44N en 4 escenarios:
@@ -100,14 +99,13 @@ Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes
      c) Pulsando y manteniendo presionado el botón físico EN/RESET del ESP32.
      d) Cable de señal desconectado de GPIO 18 (entrada flotante al driver).
 8. **Mediciones a registrar:** $V_{B(Q1)}$, $V_{B(Q2)}$, $V_{Gate(Q3)}$, corriente de fuga $I_{leak}$ en Drain.
-9. **Criterios de aceptación cuantificables:**
-   - $V_{GS} \le 0.10\,\text{V}$ ($100\,\text{mV}$) en los cuatro escenarios evaluados.
-   - LED indicador de carga completamente apagado ($I_{leak} < 10\,\mu\text{A}$).
-   - Osciloscopio confirma ausencia de pulsos espurios superiores a $0.50\,\text{V}$ durante la rampa de encendido de la fuente.
+9. **Criterios de aceptación cuantificables (`ACT-01.1` preliminar vs. `ACT-01.2` captura temporal):**
+   - **`ACT-01.1` (Comprobación preliminar con DMM + LED testigo $330\,\Omega$):** $V_{GS} \le 0.10\,\text{V}$ en los 4 escenarios y LED apagado. *Alcance:* comprobación complementaria; no descarta pulsos sub-milisegundo y **no cierra `ACT-01` por sí sola**.
+   - **`ACT-01.2` (Protocolo reproducible en 2 modos con osciloscopio $\ge 20\,\text{MHz}$, 2CH, sondas 10X DC con masa corta de ambos canales en `Pin 3 Source`):** Para no confundir una ausencia de disparo con una forma de onda medida, es obligatorio ejecutar dos modos complementarios: (1) **Modo 1 — Captura determinista disparada por el evento (`Event-Triggered`, 11 oscilogramas obligatorios):** **CH1** en `Pin 1 (Gate)` ($200\,\text{mV/div}$ DC). En **encendido en frío (`ACT-01.2-A`, 1 captura)**, **CH2** en `+5V` ($1\,\text{V/div}$ DC), base **$50\,\text{ms/div}$** (ventana de $500\,\text{ms}$, $10\%$ pre-trigger), disparo *Single-Shot* ascendente en **CH2 a $+1.50\,\text{V}$**. En **reinicio y recuperación (`ACT-01.2-B`, 5 ciclos = 10 capturas)**, **CH2** en `RESET` (Nano) / `EN` (ESP32), rearmando el botón `Single` antes de cada acción para registrar **5 capturas en flanco de bajada de CH2 a $+1.50\,\text{V}$** (**$20\,\text{ms/div}$**, ventana $200\,\text{ms}$) y **5 capturas en flanco de subida de CH2 a $+1.50\,\text{V}$** (**$50\,\text{ms/div}$**, ventana $500\,\text{ms}$ hasta `setup()`). En las 11 formas de onda registradas debe medirse con cursor **$V_{GS(\text{peak})} \le 0.50\,\text{V}$** (y siempre $< 0.80\,\text{V}$). (2) **Modo 2 — Vigilancia rápida de glitches por disparo en compuerta (`Glitch-Trap`, base $20\,\mu\text{s/div}$, ventana $200\,\mu\text{s}$):** **CH1** en `Pin 1 (Gate)` ($200\,\text{mV/div}$ DC), **CH2** en `GPIO 18`/`D3`, disparo *Single-Shot* ascendente en **CH1 a $+0.50\,\text{V}$**. Se rearma `Single` (verificando estado `ARMED`/`WAIT`) antes de 1 encendido en frío (observado $5\,\text{s}$) y antes de cada uno de los 5 ciclos completos de `RESET`/`EN` ($2\,\text{s}$ presionado + $5\,\text{s}$ liberado). Si al concluir la ventana el equipo permanece en `ARMED`/`WAIT`, se registra en bitácora como `0 disparos >= +0.50 V` (con foto del estado `WAIT`); cualquier disparo $\ge +0.50\,\text{V}$ impide aprobar hasta su análisis y cualquier pico $\ge 0.80\,\text{V}$ reprueba `ACT-01.2`.
 10. **Resultado esperado:** $V_{GS} = 0.00\,\text{V}$, corte absoluto garantizado por $R_{pd1}$, $R_{pu}$ y $R_{pd2}$.
 11. **Resultado real:** PENDIENTE DE MEDICIÓN EN BANCO.
 12. **Evidencia:** Captura oscilográfica del transitorio de boot y fotografía de pantalla del DMM (Pendiente).
-13. **Estado:** `LISTA PARA BANCO`.
+13. **Estado:** `ACT-01.1` `PENDIENTE DE MEDICIÓN EN BANCO` · `ACT-01.2` `PENDIENTE DE INSTRUMENTACIÓN EXTERNA` (ambas requeridas para cerrar `ACT-01`).
 14. **Observaciones y acciones correctivas:** Si se detecta $V_{GS} > 0.20\,\text{V}$ en reset, verificar que $R_{pd1}$ y $R_{pu}$ no presenten soldadura fría o valores alterados.
 
 ---
@@ -116,7 +114,7 @@ Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes
 1. **Identificador:** `ACT-02`
 2. **Objetivo:** Comprobar que el circuito de adaptación de 2 etapas NPN+PNP entrega una tensión de compuerta plena ($V_{GS} \ge 4.50\,\text{V}$) al ser activado desde el GPIO de 3.3 V del ESP32, asegurando saturación profunda del MOSFET IRLZ44N dentro de especificación de catálogo ($R_{DS(on)} \le 0.035\,\Omega$).
 3. **Riesgo cubierto:** Conducción parcial del MOSFET a 3.3V, sobrecalentamiento por resistencia de canal elevada y fallo de par de arranque de la bomba.
-4. **Equipo e instrumentos:** Multímetro Digital (DMM) calibrado (resolución 1 mV), termocupla tipo K o termómetro infrarrojo (IR) sin contacto.
+4. **Equipo y requisitos metrológicos:** Multímetro Digital (DMM) con escala mV DC (resolución $\le 0.1\,\text{mV}$; **obligatorio registrar exactitud especificada del fabricante en ese rango**, corriente de carga $I_D$ y contacto directo sobre patillas TO-220), amperímetro DC ($\ge 2\,\text{A}$) y termocupla tipo K o termómetro IR (con cinta negra mate $\varepsilon \approx 0.95$).
 5. **Montaje, Trayectoria Eléctrica y Seguridad Térmica (MEN-02 / MEN-04):**
    - **Pre-driver:** Conectar Base de Q1 a GPIO 18 vía $R_1 = 2.2\,\text{k}\Omega$ (con $R_{pd1} = 10\,\text{k}\Omega$ a GND); Emisor de Q1 a GND; Colector de Q1 a Base de Q2 vía $R_2 = 2.2\,\text{k}\Omega$.
    - **Etapa PNP:** Emisor de Q2 al riel de $+5.0\,\text{V}$ estabilizado; Base de Q2 polarizada con $R_{pu} = 10\,\text{k}\Omega$ a $+5.0\,\text{V}$; Colector de Q2 a Gate de Q3 (con $R_{pd2} = 10\,\text{k}\Omega$ a GND).
@@ -124,38 +122,33 @@ Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes
      * Conectar un extremo de la resistencia de potencia de $15\,\Omega$, $5\,\text{W}$ directamente al riel de $+5.0\,\text{V}$ de la fuente externa.
      * Conectar el segundo extremo de la resistencia al terminal Drenador (Drain, pin 2) del MOSFET Q3 (Nodo N6).
      * Conectar el terminal Fuente (Source, pin 3) del MOSFET Q3 directamente a la masa común (GND).
-     * *Comprobación de disipación y corriente teórica:* $I = \frac{5.0\,\text{V}}{15\,\Omega} \approx 0.333\,\text{A} = 333\,\text{mA}$; $P = \frac{V^2}{R} = \frac{25}{15} \approx 1.67\,\text{W}$.
+     * *Disipación y montaje no inflamable:* A $5.0\,\text{V}$, $I_D \approx 333\,\text{mA}$ y $P \approx 1.67\,\text{W}$ (hasta $368\,\text{mA} / 1.93\,\text{W}$ a $5.25\,\text{V}$ con $14.25\,\Omega$). La resistencia cerámica de $15\,\Omega, 5\,\text{W}$ debe apoyarse elevada sobre **superficie cerámica/metálica no inflamable**, lejos de la protoboard.
    - **Instrumentación Térmica, Régimen de Pulso y Criterio de Parada Sin Contacto (MEN-04):**
      * **Prohibición de contacto manual:** Queda estrictamente prohibido tocar la resistencia de potencia o el MOSFET mientras el circuito esté energizado o inmediatamente después del pulso.
      * **Medición de temperatura:** Fijar mecánicamente una sonda termocupla tipo K sobre el cuerpo cerámico central de la resistencia de $15\,\Omega$ (o apuntar un termómetro IR a $5\text{--}10\,\text{cm}$ de su superficie).
-     * **Duración y ciclo de trabajo:** La carga solo se energizará durante pulsos supervisados de $3.0\,\text{s}$, dejando un intervalo de enfriamiento mínimo de $30\,\text{s}$ entre activaciones.
+     * **Secuencia con firmware de producción intacto (sin conflicto con límites de 20s/25s):** Se usa el binario de producción (`nanoatmega328`/`esp32dev`) disparando pulsos manuales supervisados de **$3.0\,\text{s}$** (`manualBurstDurationMs = 3000` ms vía botón `D2`/`GPIO 4`, un pulso por nodo) con pausas de enfriamiento $\ge 30\,\text{s}$ (superiores a `cooldownPeriodMs = 5000` ms), sin alcanzar ni modificar `maxAutoDurationMs` ($20.0\,\text{s}$) ni `maxSafetyWatchdogMs` ($25.0\,\text{s}$).
      * **Verificación de corriente:** Intercalar amperímetro en serie (escala 10 A o 2 A DC) entre la resistencia y el Drain, o medir tensión en bornes de la resistencia ($I = V_R / 15\,\Omega$).
-     * **Criterio de Parada de Emergencia Instrumental:** Cortar de inmediato el interruptor de la fuente de $+5\,\text{V}$ si la lectura de termocupla/IR supera **$60.0\,^\circ\text{C}$**, si la corriente medida se desvía fuera de la ventana **$300\text{--}370\,\text{mA}$**, o si la caída $V_{DS}$ en Q3 supera **$0.50\,\text{V}$** durante la conducción.
-     * **Manipulación segura:** Desenergizar siempre la fuente externa y comprobar $0.0\,\text{V}$ con el multímetro antes de modificar cualquier conexión.
-6. **Precondiciones:** ACT-01 aprobada. Firmware configurado para emitir comando de riego manual de 3 s.
+     * **Tres Zonas Cuantitativas para $V_{DS}$ en patillas TO-220 (sin zona gris):** (1) **Aceptación (`APROBADO`):** $V_{DS} \le 15.0\,\text{mV}$ (con $V_{GS} \ge 4.50\,\text{V}$ e $I_D \in [290; 380]\,\text{mA}$); (2) **Zona Intermedia de Incumplimiento (`15.0 mV < VDS <= 30.0 mV` — `NO APROBADO`):** incumple aceptación, rechaza `ACT-02` y bloquea `ACT-03`; (3) **Parada de Emergencia (`ABORTAR`):** cortar fuente si **$V_{DS} > 30.0\,\text{mV}$**, $V_{GS} < 4.50\,\text{V}$, $T_{\text{MOSFET,IR}} \ge 45.0\,^\circ\text{C}$ *(umbral prudencial de aborto en taller, no equivalente metrológicamente a $60^\circ\text{C}$ por termopar)* o $T_{\text{res}} > 60.0\,^\circ\text{C}$. *(Nota: $V_{DS} \le 15.0\,\text{mV}$ es un criterio experimental de aceptación del proyecto para el montaje físico —que incluye la resistencia de contacto en patillas TO-220—, no un valor garantizado directamente por la hoja técnica para toda condición de operación).*
+6. **Precondiciones:** `ACT-01.1` superada. Firmware de producción cargado (`manualBurstDurationMs = 3000` ms).
 7. **Procedimiento:**
    - Activar el riego manual mediante pulsador.
    - Medir durante el intervalo de 3 s la tensión en GPIO 18 ($V_{OH}$), la tensión de base de Q1 ($V_{BE1}$), la tensión colector-emisor de Q1 ($V_{CE1}$), la tensión base-emisor de Q2 ($V_{EB2}$) y la tensión efectiva Gate-Source en Q3 ($V_{GS}$).
 8. **Mediciones a registrar:** $V_{GPIO}$, $V_{BE1}$, $V_{CE1}$, $V_{EB2}$, $V_{EC2}$, $V_{GS}$.
-9. **Criterios de aceptación cuantificables:**
-   - $V_{OH(GPIO)} \ge 3.00\,\text{V}$.
-   - $V_{CE1(sat)} \le 0.20\,\text{V}$ (Q1 saturado).
-   - $V_{EC2(sat)} \le 0.20\,\text{V}$ (Q2 saturado).
-   - **$V_{GS} \ge 4.50\,\text{V}$** (Criterio crítico de aceptación; nominal calculado: $4.85\,\text{V} - 4.90\,\text{V}$).
+9. **Criterios de aceptación cuantificables:** $V_{OH(\text{GPIO 18})} \ge 3.00\,\text{V}$, $V_{CE1} \le 0.20\,\text{V}$, $|V_{EC2}| \le 0.25\,\text{V}$, **$V_{GS} \ge 4.50\,\text{V}$** y **$V_{DS} \le 15.0\,\text{mV}$** en pines `Pin 2`/`Pin 3` del TO-220 a $I_D \in [290; 380]\,\text{mA}$ (toda lectura $V_{DS} > 15.0\,\text{mV}$ incumple aceptación).
 10. **Resultado esperado:** $V_{GS} \approx 4.85\,\text{V}$, excitación plena del canal N del IRLZ44N.
 11. **Resultado real:** PENDIENTE DE MEDICIÓN EN BANCO.
 12. **Evidencia:** Registro numérico de tabla nodal firmado (Pendiente).
-13. **Estado:** `LISTA PARA BANCO`.
+13. **Estado:** `PENDIENTE DE MEDICIÓN EN BANCO`.
 14. **Observaciones y acciones correctivas:** Si $V_{GS} < 4.50\,\text{V}$, verificar la caída de tensión en el riel de 5V de la fuente bajo carga. Si la fuente cae por debajo de $4.8\,\text{V}$, sustituir la fuente por una unidad de 5V 3A de mayor regulación.
 
 ---
 
-### ACT-03: Conmutación con Carga Real de Bomba y Estabilidad Térmica
-1. **Identificador:** `ACT-03`
+### ACT-03: Conmutación con Bomba Real — Régimen Estacionario (`ACT-03.1`) vs. Arranque Dinámico (`ACT-03.2`)
+1. **Identificador:** `ACT-03` (dividida en **`ACT-03.1`** estacionaria con DMM y **`ACT-03.2`** dinámica con osciloscopio).
 2. **Objetivo:** Comprobar la conmutación controlada con la microbomba sumergible JT-DC3W real sumergida en agua, midiendo la caída de tensión en canal ($V_{DS}$), la corriente de régimen ($I_{load}$) y la estabilidad térmica del encapsulado TO-220 tras un ciclo de bombeo máximo continuo ($T = 20\,\text{s}$).
 3. **Riesgo cubierto:** F-05 (Sobrecarga de motor, embalamiento térmico del driver, calentamiento destructivo en gabinete cerrado).
 4. **Equipo e instrumentos:** Multímetro Digital para corriente DC (escala 10 A), Multímetro para milivoltios DC, Termómetro infrarrojo o termocupla Tipo K calibrada, bandeja plástica antiderrames.
-5. **Montaje:** Depósito con agua limpia, microbomba JT-DC3W sumergida impulsando agua en circuito cerrado hacia el depósito. Bomba conectada entre +5V y Drain de Q3.
+5. **Montaje y topología de medida sin bucle de masa:** Depósito con agua limpia y microbomba `JT-DC3W` sumergida con diodo `1N5819` en antiparalelo directo (cátodo a `+5V`, ánodo a `Drain`). Para `ACT-03.1`: DMM y termómetro IR/termocupla. Para `ACT-03.2` (osciloscopio 2CH): dado que los blindajes BNC de `CH1` y `CH2` comparten masa común, **si se utiliza resistencia *shunt* ($R_{\text{shunt}} = 0.10\,\Omega, 1\%, \ge 2\,\text{W}$) debe colocarse exclusivamente en bajo lado**, en serie entre el `Pin 3 (Source)` del `IRLZ44N` (Terminal 1 = `Nodo N_SHUNT`) y el riel `GND` de la fuente de $+5\,\text{V}$ (Terminal 2 = `Nodo GND_REF`, donde también se unen el `GND` del MCU y $R_{pd2}$). Las pinzas/resortes de masa de **ambas sondas (`CH1` y `CH2`) se conectan únicamente al mismo `Nodo GND_REF`** (jamás en extremos opuestos del shunt); la punta de **CH1** (10X DC) mide el riel `+5V` (`VIN`) y la punta de **CH2** (1X DC o 10X con límite BW $20\,\text{MHz}$, escala $20\text{--}50\,\text{mV/div}$) mide el `Nodo N_SHUNT` (`Pin 3 Source`), obteniendo $V_{\text{shunt}}(t) = V_{\text{Source}}(t) - V_{\text{GND\_REF}}$ sin puentear el shunt.
 6. **Precondiciones:** ACT-01 y ACT-02 aprobadas. Prohibido terminantemente encender la microbomba en seco. Prohibido frenar manualmente el rotor para forzar corriente de bloqueo.
 7. **Procedimiento:**
    - Registrar la temperatura ambiente del banco ($T_{\text{amb}}$).
@@ -164,15 +157,13 @@ Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes
    - Medir con puntas de prueba directamente sobre las patillas Drain (Pin 2) y Source (Pin 3) la caída $V_{DS}$.
    - Al finalizar los 20 segundos, medir de inmediato la temperatura superficial del encapsulado TO-220 del IRLZ44N ($T_{\text{case}}$) y del diodo 1N5819.
 8. **Mediciones a registrar:** $T_{\text{amb}}$, $I_{\text{bomba}}$, $V_{DS}$, $T_{\text{case}}$, $\Delta T = T_{\text{case}} - T_{\text{amb}}$.
-9. **Criterios de aceptación cuantificables:**
-   - Corriente de régimen: $I_{\text{bomba}} \le 400\,\text{mA}$ en agua.
-   - Caída de tensión Drain-Source: **$V_{DS} \le 50\,\text{mV}$** ($0.05\,\text{V}$) a régimen nominal.
-   - Elevación térmica: **$\Delta T \le 15^\circ\text{C}$** sobre temperatura ambiente tras 20 s.
-   - Temperatura máxima de encapsulado: $T_{\text{case}} \le 45^\circ\text{C}$.
+9. **Criterios de aceptación separados por régimen e instrumento:**
+   - **`ACT-03.1` (Régimen estacionario a $20\,\text{s}$ en agua con DMM + termómetro — `PENDIENTE DE MEDICIÓN EN BANCO`):** (1) $V_{CC,\text{est}} \in [4.75; 5.25]\,\text{V}$; (2) corriente estacionaria **$I_{\text{bomba,est}} \le 400\,\text{mA}$**; (3) $V_{GS,\text{est}} \ge 4.50\,\text{V}$ y **$V_{DS,\text{est}} \le 50.0\,\text{mV}$** en patillas TO-220 a $I_{\text{bomba,est}}$; (4) **$\Delta T \le 15^\circ\text{C}$** y **$T_{\text{case}} \le 45^\circ\text{C}$**; (5) bomba sumergida sin reinicios del MCU.
+   - **`ACT-03.2` (Verificación dinámica de arranque con osciloscopio 2CH — `PENDIENTE DE INSTRUMENTACIÓN EXTERNA`):** Con base de tiempo de $5\text{--}10\,\text{ms/div}$ y disparo *Single-Shot* en **CH2** (umbral $+20\,\text{mV}$ sobre `Nodo N_SHUNT` o $+0.20\,\text{A}$ en sonda Hall): (1) en **CH1** (`+5V` respecto a `GND_REF`), tensión mínima transitoria **$V_{CC,\text{mín(din)}} \ge 4.65\,\text{V}$**; (2) en **CH2**, corriente de pico calculada a partir del valor certificado/medido de la resistencia del shunt como **$I_{\text{arranque}} = \frac{V_{\text{shunt,peak}}}{R_{\text{shunt,real}}} \le 1.20\,\text{A}$** ($\le 120.0\,\text{mV}$ para $R_{\text{shunt,real}} = 0.100\,\Omega$). Si se emplea sonda de corriente AC/DC por efecto Hall en lugar de shunt, debe tener ancho de banda $\ge 100\,\text{kHz}$ DC, desmagnetizarse y ajustarse a $0.00\,\text{A}$ antes del disparo abrazando el conductor positivo de la bomba. No puede declararse cumplida solo con multímetro.
 10. **Resultado esperado:** $V_{DS} \approx 12\,\text{mV} - 20\,\text{mV}$, potencia disipada $\approx 5\,\text{mW}$, elevación térmica $\Delta T < 2^\circ\text{C}$ (frío al tacto).
 11. **Resultado real:** PENDIENTE DE MEDICIÓN EN BANCO.
 12. **Evidencia:** Registro de prueba térmica y foto termográfica/termocupla (Pendiente).
-13. **Estado:** `LISTA PARA BANCO`.
+13. **Estado:** `ACT-03.1` `PENDIENTE DE MEDICIÓN EN BANCO` · `ACT-03.2` `PENDIENTE DE INSTRUMENTACIÓN EXTERNA`.
 14. **Observaciones y acciones correctivas:** Si $V_{DS} > 50\,\text{mV}$, suspender la prueba inmediatamente; indica que el MOSFET no está saturando adecuadamente o la pieza es un clon fuera de especificación.
 
 ---
@@ -182,7 +173,7 @@ Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes
 2. **Objetivo:** Capturar mediante osciloscopio el pico de fuerza contraelectromotriz (Back-EMF) generado en el borne negativo de la bomba al conmutar de conducción a corte, verificando que el diodo Schottky 1N5819 suprime el transitorio de forma segura por debajo de 6.0 V.
 3. **Riesgo cubierto:** F-06 (Destrucción por sobretensión del canal del MOSFET, reinicios espurios de CPU por acoplamiento de ruido en el riel de alimentación).
 4. **Equipo e instrumentos:** Osciloscopio Digital con memoria (ancho de banda $\ge 20\,\text{MHz}$), sonda pasiva 10X compensada con cable de masa corto para evitar inductancia espuria en la punta, acoplamiento DC, trigger en flanco de subida en modo disparo único (*Single Shot* o *Normal*).
-5. **Montaje:** Conexión de sonda de osciloscopio: Pinza de tierra al Source (GND común); punta de sonda directamente sobre el pin Drain (Pin 2 / Tab) del IRLZ44N (Nodo N6). Bomba sumergible conectada en agua. Diodo 1N5819 soldado en antiparalelo directo a bornes del motor (cátodo a +5V, ánodo a Drain).
+5. **Puntos exactos de medida y masa:** Con 2 sondas pasivas 10X compensadas en DC: **CH1** directamente en `Pin 2 (Drain)` del `IRLZ44N` (Nodo N6); **CH2** directamente en `Pin 1 (Gate)` (Nodo N5); **resorte/pinza corta de masa de ambas sondas directamente en `Pin 3 (Source)`** (`GND` común, Nodo N8). Bomba sumergida con `1N5819` en antiparalelo directo (cátodo a `+5V`, ánodo a `Drain`).
 6. **Precondiciones:** ACT-03 aprobada. Confirmación visual y por multímetro de la polaridad del diodo (cátodo con banda plateada conectado al riel +5V; ánodo a Drain).
 7. **Procedimiento de Captura en Dos Pasos (OBL-02):**
    - **Configuración del Nivel de Trigger:**
@@ -196,39 +187,38 @@ Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes
      * Mantener trigger en $+4.50\,\text{V}$, ajustar base de tiempos a $500\,\text{ns}/\text{div}$ (o $1\,\mu\text{s}/\text{div}$).
      * Capturar el instante del corte de corriente y medir con cursores la amplitud máxima del sobreimpulso ($V_{\text{peak}}$) y el tiempo de restablecimiento ($t_{\text{clamp}}$).
 8. **Mediciones a registrar:** Modelo del osciloscopio, atenuación de sonda (10X), nivel de trigger fijado ($+4.50\,\text{V}$), $V_{\text{peak}}$ en Drain, tiempo de retorno a $+5.0\,\text{V}$, presencia de timbreo parásito (*ringing*).
-9. **Criterios de aceptación cuantificables:**
-   - Tensión máxima de pico en Drain: **$V_{\text{peak}} \le 6.0\,\text{V}$** (Nominal esperado con diodo Schottky 1N5819: $V_{\text{fuente}} + V_F \approx 5.0\,\text{V} + 0.40\,\text{V} \approx \mathbf{5.40\,\text{V}}$).
-   - Ausencia de oscilaciones no amortiguadas que superen 6.0 V.
+9. **Configuración de disparo y criterios cuantitativos/cualitativos (`PENDIENTE DE INSTRUMENTACIÓN EXTERNA`):**
+   - **Disparos reproducibles (*Single-Shot*):** (1) Apagado macroscópico: trigger ascendente en **CH1 (`Drain`) a $+4.50\,\text{V}$** a **$20\,\mu\text{s/div}$**, midiendo en CH2 el tiempo de caída $t_{f(G)}$ ($90\% \to 10\%$); (2) Zoom Flyback: trigger en **CH1 a $+4.50\,\text{V}$** a **$1\,\mu\text{s/div}$** ($500\,\text{ns/div}$), midiendo $V_{DS(\text{peak})}$ y $t_{\text{clamp}}$; (3) Encendido: trigger ascendente en **CH2 (`Gate`) a $+1.00\,\text{V}$** a **$2\,\mu\text{s/div}$**.
+   - **Umbrales cuantitativos:** En CH1 (`Drain`), **$V_{DS(\text{peak})} \le V_{CC} + 0.60\,\text{V}$** (y $\le 6.00\,\text{V}$). En CH2 (`Gate`), durante el apagado, una vez que $V_{GS}$ baja de $0.80\,\text{V}$ ningún rebote posterior puede superar **$0.80\,\text{V}$**; en encendido, **$V_{GS(\text{peak})} \le 6.00\,\text{V}$**. El tiempo $t_{f(G)}$ y las oscilaciones amortiguadas sub-umbral se registran documentalmente (etapa restringida a ON/OFF sin PWM).
 10. **Resultado esperado:** Disparo garantizado en $+4.50\,\text{V}$, pico recortado limpiamente en $\approx 5.40\,\text{V}$ sin rebotes destructivos.
 11. **Resultado real:** PENDIENTE DE MEDICIÓN EN BANCO.
 12. **Evidencia:** Captura de pantalla del osciloscopio (.PNG / .CSV) con cursores de tensión (Pendiente).
-13. **Estado:** `LISTA PARA BANCO`.
+13. **Estado:** `PENDIENTE DE INSTRUMENTACIÓN EXTERNA`.
 14. **Observaciones y acciones correctivas:** Si el osciloscopio registra picos $> 12\,\text{V}$, el diodo 1N5819 está dañado, invertido o el cableado del diodo presenta inductancia parásita excesiva (debe ubicarse pegado a los terminales de la bomba).
 
 ---
 
-### ACT-05: Sensor de Boya y Enclavamiento de Nivel Seguro (Fail-Safe Interlock)
-1. **Identificador:** `ACT-05`
+### ACT-05: Enclavamiento Fail-Safe de Boya — Estado Estacionario y Latencias Lógica (`ACT-05.3a`) vs. Eléctrica (`ACT-05.3b`)
+1. **Identificador:** `ACT-05` (desglosada en **`ACT-05.1`**, **`ACT-05.2`**, **`ACT-05.3a`** y **`ACT-05.3b`**).
 2. **Objetivo:** Comprobar física y lógicamente que la entrada del sensor de nivel por boya magnética (CS-CO058) conmuta limpiamente con su resistencia de pull-up interna, entra en enclavamiento de seguridad (`FAULT / NO_WATER_LEVEL`) en $< 50\,\text{ms}$ al detectar nivel bajo y mantiene la bomba incondicionalmente apagada ante desconexión o rotura de cable.
 3. **Riesgo cubierto:** F-01 (Marcha en seco de la bomba, cavitación y quema de sellos), F-12 (Cable de flotador cortado o suelto).
 4. **Equipo e instrumentos:** Multímetro Digital (Voltaje DC), depósito de agua de prueba con boya magnética montada vertical/horizontalmente, Monitor Serie a 115200 baudios.
-5. **Montaje:** Interruptor de flotador conectado entre el pin digital del microcontrolador (`D4` en Nano / `GPIO 19` en ESP32) y `GND`. Salida de bomba monitoreada con voltímetro.
+5. **Montaje:** Interruptor de flotador conectado entre `D4` (Nano) / `GPIO 19` (ESP32, `INPUT_PULLUP`) y `GND`. Para `ACT-05.1`/`05.2`: DMM entre `Pin 1 (Gate)` y `Pin 3 (Source)`. Para `ACT-05.3a`: analizador lógico 2CH u osciloscopio 2CH en `D4`/`GPIO 19` y `D3`/`GPIO 18`. Para `ACT-05.3b`: **exclusivamente osciloscopio digital 2CH** con masas de ambas sondas en `Pin 3 (Source)`, ejecutando **dos adquisiciones independientes y secuenciales**: `ACT-05.3b-1` (`CH1` en flotador y `CH2` en `Pin 2 Drain`) y `ACT-05.3b-2` (`CH1` en flotador y `CH2` en `Pin 1 Gate`).
 6. **Precondiciones:** Firmware v1.2.1 cargado en placa. Lazo de control ejecutándose.
 7. **Procedimiento:**
    - Escenario 1 (Depósito con agua): Boya arriba. Medir tensión en pin de entrada. Solicitar riego manual. La bomba debe encender.
    - Escenario 2 (Depósito agotado durante riego): Con la bomba activa, descender manualmente la boya. Registrar el tiempo de corte de la bomba y la indicación en display OLED / Monitor Serie.
    - Escenario 3 (Desconexión de cable / Falla de circuito): Con la bomba en reposo y agua presente, desconectar físicamente uno de los cables del flotador de la bornera. Intentar forzar riego mediante pulsador físico y solicitud web.
 8. **Mediciones a registrar:** Tensión en pin con boya alta ($V_{\text{in, closed}}$), tensión con boya baja ($V_{\text{in, open}}$), tiempo de respuesta de corte ante caída de boya, estado de salida de bomba.
-9. **Criterios de aceptación cuantificables:**
-   - Boya alta (agua OK): Contacto cerrado a GND, $V_{\text{in}} \le 0.30\,\text{V}$ (`digitalRead == LOW`).
-   - Boya baja (sin agua): Contacto abierto, $V_{\text{in}} \ge 3.00\,\text{V}$ en ESP32 / $\ge 4.50\,\text{V}$ en Nano (`digitalRead == HIGH`).
-   - Cable desconectado: Entrada traccionada a nivel alto por `INPUT_PULLUP` $\implies$ estado seguro (`LOW WATER`).
-   - Tiempo de detención de bomba ante caída de nivel: $\le 50\,\text{ms}$ (dentro del ciclo de debouncing).
-   - Tensión en compuerta de MOSFET ante fallo (MEN-01): **$V_{GS} \le 0.10\,\text{V}$** (Criterio instrumental reproducible unificado con ACT-01; corte seguro garantizado, muy por debajo del umbral mínimo de conducción $V_{GS(th)} \ge 1.0\,\text{V}$).
+9. **Sub-verificaciones, instrumentación y criterios cuantificables:**
+   - **`ACT-05.1` (Estado estacionario y bloqueo `FAULT` — `PENDIENTE DE ENSAYO FÍSICO`):** En `D4` (Nano) / `GPIO 19` (ESP32), boya alta mide $\le 0.30\,\text{V}$ (`LOW`); boya baja o cable desconectado sube a $\ge 3.00\,\text{V}$ (ESP32) / $\ge 4.50\,\text{V}$ (Nano) por `INPUT_PULLUP`, bloqueando el bombeo (`"SIN AGUA!"`) y rechazando riego manual/web.
+   - **`ACT-05.2` (Corte en compuerta durante fallo — `PENDIENTE DE MEDICIÓN EN BANCO`):** Con DMM entre `Pin 1 (Gate)` y `Pin 3 (Source)` en estado `FAULT`, **$V_{GS} \le 0.10\,\text{V}$**.
+   - **`ACT-05.3a` (Latencia lógica de firmware — `PENDIENTE DE INSTRUMENTACIÓN EXTERNA`):** Entre entrada de boya (`D4`/`GPIO 19`) y salida del MCU (`D3`/`GPIO 18`), medida con **analizador lógico 2CH u osciloscopio 2CH**: **$\le 60\,\text{ms}$**. *Advertencia:* solo verifica la orden digital; **no demuestra descarga de compuerta ni apagado eléctrico de la bomba**.
+   - **`ACT-05.3b` (Latencia eléctrica completa mediante 2 adquisiciones obligatorias con osciloscopio 2CH — `PENDIENTE DE INSTRUMENTACIÓN EXTERNA`):** Con bomba sumergida en marcha, base de $10\,\text{ms/div}$ (ventana $100\,\text{ms}$) y disparo *Single-Shot* ascendente en **CH1** (`D4` a $+2.50\,\text{V}$ en Nano / `GPIO 19` a $+1.50\,\text{V}$ en ESP32), masa de ambas sondas en `Pin 3 (Source)`: (1) **Adquisición `ACT-05.3b-1` (Transición del nodo de potencia en `Drain`):** con **CH2 en `Pin 2 (Drain)`** (Nodo N6), el tiempo $\Delta t_{\text{Drain}}$ desde el cruce de umbral en CH1 hasta que `Drain` asciende y se estabiliza en $\ge 0.90 \times V_{CC}$ ($\ge 4.50\,\text{V}$ tras el recorte inductivo) debe cumplir **$\Delta t_{\text{Drain}} \le 80.0\,\text{ms}$**; (2) **Adquisición `ACT-05.3b-2` (Descarga de compuerta en `Gate`):** rearmando el ensayo con **CH2 en `Pin 1 (Gate)`** (Nodo N5), el tiempo $\Delta t_{\text{Gate}}$ desde el cruce en CH1 hasta que la compuerta cae permanentemente a **$V_{GS} \le 0.10\,\text{V}$** debe cumplir **$\Delta t_{\text{Gate}} \le 80.0\,\text{ms}$**. **Ambas capturas (`ACT-05.3b-1` y `ACT-05.3b-2`) son obligatorias** y deben cumplir $\le 80.0\,\text{ms}$ para aprobar `ACT-05.3b`.
 10. **Resultado esperado:** Bloqueo total e inmediato de la bomba, transición a `FAULT`, advertencia acústica y visual activa.
 11. **Resultado real:** PENDIENTE DE MEDICIÓN EN BANCO.
 12. **Evidencia:** Captura de log serie y video de respuesta de corte (Pendiente).
-13. **Estado:** `LISTA PARA BANCO`.
+13. **Estado:** `ACT-05.1`/`05.2` `PENDIENTE DE MEDICIÓN EN BANCO` · `ACT-05.3a`/`05.3b` `PENDIENTE DE INSTRUMENTACIÓN EXTERNA`.
 14. **Observaciones y acciones correctivas:** Si la entrada no sube a $> 3.0\,\text{V}$ al desconectar el cable, verificar la activación por software de `pinMode(pin, INPUT_PULLUP)` en el firmware.
 
 ---
@@ -241,8 +231,8 @@ Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes
    - **Subprotocolo ACT-06.B (Seguridad HTTP, Rate Limiter y Control de Actuador):** Respuesta determinista del servidor WebServer real compilado en el ESP32 ante 7 escenarios HTTP estructurados, verificación del limitador de frecuencia (429) activado específicamente por token inválido (`lastFailedAuthMs`), y preservación del apagado de la bomba ante peticiones rechazadas.
 3. **Riesgo cubierto:** F-05 (Límite de ciclo automático de 20 s y Watchdog absoluto de 25 s), F-08, F-16, F-17, F-18 (Seguridad HTTP, ataques de temporización, desbordamiento de memoria heap en silicio).
 4. **Equipo e instrumentos:** Cronómetro digital calibrado, estación de trabajo con Python / cURL / Postman conectada a la misma subred Wi-Fi privada del ESP32, Monitor Serie a 115200 baudios, Multímetro monitoreando N5 ($V_{GS}$) y N6 ($V_{DS}$).
-5. **Montaje:** ESP32 DevKit V1 conectado a red local de laboratorio privada (VLAN IoT aislada). Sonda capacitiva mantenida en aire seco (<20% de humedad) para forzar demanda de riego continuo. Bomba monitoreada eléctricamente (se permite mantener la bomba sumergida o sustituida por carga de prueba de $15\,\Omega$, $5\,\text{W}$).
-6. **Precondiciones:** ACT-01 a ACT-05 aprobadas. Archivo `Credentials.h` configurado con token seguro de más de 16 caracteres no predeterminado.
+5. **Montaje:** ESP32 DevKit V1 conectado a red local de laboratorio privada (VLAN IoT aislada). Sonda capacitiva mantenida en aire seco (<20% de humedad) para forzar demanda de riego continuo. Bomba monitoreada eléctricamente (sumergida en agua o sustituida por carga ficticia de $15\,\Omega$, $5\,\text{W}$).
+6. **Precondiciones:** `ACT-01.1`, `ACT-02`, `ACT-03.1` y `ACT-05.1`/`05.2` verificadas en banco (o carga ficticia de $15\,\Omega, 5\,\text{W}$ conectada). Archivo `Credentials.h` con token $\ge 16$ caracteres no predeterminado.
 7. **Procedimiento Operativo:**
 
    #### Subprotocolo ACT-06.A1: Validación del Límite Operativo Automático (20.0 s — Firmware de Producción)
@@ -302,7 +292,7 @@ Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes
 10. **Resultado esperado:** Corte automático de producción a los 20.0 s (`AUTO_MAX_DURATION_REACHED`); corte de watchdog absoluto a los 25.0 s (`SAFETY_TIMEOUT`) en prueba aislada; suite de 7 escenarios HTTP cumple secuencialmente sin fugas de memoria.
 11. **Resultado real:** PENDIENTE DE MEDICIÓN EN BANCO.
 12. **Evidencia:** Registros de cURL con timestamps y log serie con trazas de parada y lecturas de heap (Pendiente).
-13. **Estado:** `LISTA PARA BANCO`.
+13. **Estado:** `PENDIENTE DE MEDICIÓN EN BANCO`.
 14. **Observaciones y acciones correctivas:** No dejar nunca instalado el binario con `-DFLORACARE_BENCH_TEST_WATCHDOG_25S` tras concluir ACT-06.A2. Si se detecta fuga de heap acumulativa, revisar instancias `String` en los callbacks de `WebServer`.
 
 ---
@@ -324,15 +314,20 @@ Antes de suministrar energía eléctrica a la protoboard, realiza los siguientes
 
 ## 📌 Fase 5: Matriz Resumen de Estados de Pruebas de Banco
 
-| Código de Prueba | Subsistema Evaluado | Estado Actual | Evidencia Requerida | Bloqueo Técnico |
+| Código de Prueba | Subsistema / Verificación Específica | Estado Actual | Instrumento Obligatorio | Condición / Bloqueo Técnico |
 | :---: | :--- | :---: | :--- | :--- |
-| **ACT-01** | Estado seguro del driver (corte en boot/reset) | `LISTA PARA BANCO` | Oscilograma de arranque y $V_{GS} \le 0.1\,\text{V}$ | Disponibilidad de protoboard e instrumental |
-| **ACT-02** | Excitación compuerta MOSFET ($V_{GS} \ge 4.5\,\text{V}$) | `LISTA PARA BANCO` | Tabla de tensiones nodales bajo carga simulada | Aprobación previa de ACT-01 |
-| **ACT-03** | Conmutación real con bomba ($V_{DS} \le 50\,\text{mV}$) | `LISTA PARA BANCO` | Termografía / DMM tras 20 s en agua | Aprobación previa de ACT-01 y ACT-02 |
-| **ACT-04** | Supresión Back-EMF con diodo 1N5819 ($V_{\text{peak}} \le 6\,\text{V}$)| `LISTA PARA BANCO` | Oscilograma de disparo único en corte | Aprobación previa de ACT-03 |
-| **ACT-05** | Sensor de nivel fail-safe (corte en $\le 50\,\text{ms}$) | `LISTA PARA BANCO` | Log serie y medición de entrada pull-up | Montaje de boya en depósito de prueba |
-| **ACT-06** | Límite auto (20s), Watchdog aislado (25s) y HTTP real | `LISTA PARA BANCO` | Cronometraje A1/A2, trazas serie y 7 peticiones cURL | Conexión Wi-Fi de banco en red privada |
+| **`ACT-01.1`** | Corte estático en boot, reset y cable suelto ($V_{GS} \le 0.10\,\text{V}$) | `PENDIENTE DE MEDICIÓN EN BANCO` | DMM + LED testigo ($330\,\Omega$) | Comprobación preliminar; **no cierra `ACT-01`** |
+| **`ACT-01.2`** | Captura determinista Modo 1 (11 trazas, $V_{GS(\text{peak})} \le 0.50\,\text{V}$ y $<0.80\,\text{V}$) + Modo 2 (`0` disparos $\ge +0.50\,\text{V}$) | `PENDIENTE DE INSTRUMENTACIÓN EXTERNA` | Osciloscopio $\ge 20\,\text{MHz}$ (2CH, Modos 1 y 2) | Requiere laboratorio con osciloscopio |
+| **`ACT-02`** | Excitación estática ($V_{GS} \ge 4.50\,\text{V}, V_{DS} \le 15.0\,\text{mV}$ a $15\,\Omega$, pulso $3\,\text{s}$) | `PENDIENTE DE MEDICIÓN EN BANCO` | DMM (exactitud registrada) + Termómetro | Superar `ACT-01.1`; zona $>15\,\text{mV}$ rechaza prueba |
+| **`ACT-03.1`** | Conmutación estacionaria con bomba sumergida ($V_{DS} \le 50\,\text{mV}, I_{\text{est}} \le 400\,\text{mA}$) | `PENDIENTE DE MEDICIÓN EN BANCO` | DMM + Termómetro + Agua | Superar `ACT-01.1` y `ACT-02` |
+| **`ACT-03.2`** | Arranque dinámico ($V_{CC,\text{mín}} \ge 4.65\,\text{V}, I_{\text{arranque}} = V_{\text{shunt,peak}}/R_{\text{shunt,real}} \le 1.20\,\text{A}$) | `PENDIENTE DE INSTRUMENTACIÓN EXTERNA` | Osciloscopio 2CH + Shunt bajo lado $0.10\,\Omega$ (masa común `GND_REF`) o Sonda Hall | No verificable solo con DMM |
+| **`ACT-04`** | Recorte Flyback ($V_{DS(\text{peak})} \le V_{CC}+0.60\,\text{V}$), $t_{f(G)}$ y rebote $<0.80\,\text{V}$ | `PENDIENTE DE INSTRUMENTACIÓN EXTERNA` | Osciloscopio $\ge 20\,\text{MHz}$ (2 sondas 10X en Drain/Gate) | Requiere laboratorio con osciloscopio |
+| **`ACT-05.1`** | Bloqueo estacionario `FAULT` ante boya baja o hilo abierto (`D4`/`GPIO 19`) | `PENDIENTE DE ENSAYO FÍSICO` | Boya en depósito + DMM + OLED/Serie | Montaje físico pendiente |
+| **`ACT-05.2`** | Tensión de corte en compuerta durante fallo ($V_{GS} \le 0.10\,\text{V}$) | `PENDIENTE DE MEDICIÓN EN BANCO` | DMM en Nodo N5 | Montaje físico pendiente |
+| **`ACT-05.3a`** | Latencia lógica (`D4`/`GPIO 19` $\to$ `D3`/`GPIO 18` $\le 60\,\text{ms}$) | `PENDIENTE DE INSTRUMENTACIÓN EXTERNA` | Analizador lógico 2CH u Osciloscopio 2CH | Solo cubre orden digital; **no cierra latencia física** |
+| **`ACT-05.3b`** | Latencia eléctrica en 2 capturas: `ACT-05.3b-1` (`Drain` $\ge 0.9V_{CC}$ en $\le 80\,\text{ms}$) y `ACT-05.3b-2` (`Gate` $\le 0.10\,\text{V}$ en $\le 80\,\text{ms}$) | `PENDIENTE DE INSTRUMENTACIÓN EXTERNA` | **Osciloscopio 2CH** (2 capturas obligatorias) | Requiere laboratorio con osciloscopio |
+| **`ACT-06`** | Límite auto $20\,\text{s}$ (`A1`), Watchdog aislado $25\,\text{s}$ (`A2`) y 7 casos HTTP (`B`) | `PENDIENTE DE MEDICIÓN EN BANCO` | Cronómetro + DMM + cURL en LAN privada | Restaurar firmware de producción tras `ACT-06.A2` |
 
 > [!CAUTION]
 > **Prohibición de Operación Desatendida:**
-> El sistema no debe dejarse operando sin supervisión humana continua hasta que las 6 pruebas de la matriz anterior hayan sido ejecutadas, firmadas con fecha y sus resultados se encuentren estrictamente dentro de los criterios de aceptación cuantitativos.
+> El sistema no debe dejarse operando sin supervisión humana continua hasta que todas las pruebas y sub-verificaciones de la matriz anterior (incluidas las capturas con osciloscopio `ACT-01.2`, `ACT-03.2`, `ACT-04` y `ACT-05.3b`) hayan sido ejecutadas, firmadas con fecha y sus resultados se encuentren estrictamente dentro de los criterios de aceptación cuantitativos.

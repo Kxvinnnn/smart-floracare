@@ -65,7 +65,7 @@ El firmware adopta una **Arquitectura en Capas Desacoplada (Layered Architecture
 ### 3.1 Arduino Nano V3 (5.0V Nativo)
 - **Microcontrolador:** ATmega328P (16 MHz, lógica 5.0 V).
 - **Sensor de suelo capacitivo v1.2:** Alimentado a **5.0V** (salida $0.0\,\text{V}-5.0\,\text{V}$ a `A0`).
-- **Driver de bomba:** MOSFET Logic-Level **Vishay IRLZ44N** excitado directamente desde pin `D3` vía $R_{\text{gate}} = 1\,\text{k}\Omega$ y $R_{pd} = 10\,\text{k}\Omega$ a GND.
+- **Driver de bomba:** MOSFET Logic-Level **Infineon / IR `IRLZ44N`** (`PD-91338`, $R_{DS(on)} \le 0.025\,\Omega$ a $5.0\,\text{V}$ y $\le 0.035\,\Omega$ a $4.0\,\text{V}$ a $T_J=25^\circ\text{C}$) excitado desde `D3` vía $R_{\text{gate}} = 1\,\text{k}\Omega$ y $R_{pd} = 10\,\text{k}\Omega$ a GND (conmutación estática ON/OFF, sin PWM).
 - **Diodo Flyback:** **1N5819 Schottky** ($40\,\text{V}, 1\,\text{A}$) en antiparalelo directo en bornes de la bomba.
 - **Buzzer y Botón:** Buzzer pasivo en `D5` (vía $220\,\Omega$); pulsador en `D2` (`INPUT_PULLUP`); boya en `D4` (`INPUT_PULLUP`).
 
@@ -83,12 +83,12 @@ El firmware adopta una **Arquitectura en Capas Desacoplada (Layered Architecture
     * Emisor: Al riel de potencia de `+5V`.
     * Base: Conectada al Colector de Q1 vía $R_2 = 2.2\,\text{k}\Omega$; pull-up $R_{pu} = 10\,\text{k}\Omega$ a `+5V`.
     * Colector: Al Gate del MOSFET Q3.
-  - **Q3 (N-MOSFET Vishay IRLZ44N TO-220):**
-    * Gate: Conectado a Colector de Q2; pull-down de descarga $R_{pd2} = 10\,\text{k}\Omega$ a GND.
+  - **Q3 (N-MOSFET Infineon / IR `IRLZ44N`, Doc. `PD-91338`, TO-220):**
+    * Gate: Conectado a Colector de Q2; pull-down de descarga $R_{pd2} = 10\,\text{k}\Omega$ a GND (uso exclusivo en conmutación estática ON/OFF; prohibido PWM).
     * Drain: Conectado al polo negativo de la microbomba.
     * Source: A GND común.
-  - **Comportamiento Seguro:** Durante boot, reset o desconexión del GPIO, $R_{pd1}$ mantiene Q1 en corte $\to$ $R_{pu}$ mantiene Q2 en corte $\to$ $R_{pd2}$ drena la compuerta de Q3 a $0\,\text{V}$ $\implies$ Bomba incondicionalmente **OFF**.
-  - **Excitación en Activo:** Cuando GPIO 18 pasa a 3.3V, Q1 y Q2 saturan profundamente, elevando la compuerta a $V_{GS} \approx 4.85\,\text{V} - 4.90\,\text{V}$, garantizando que el IRLZ44N opere dentro de su especificación de $R_{DS(on)} \le 0.035\,\Omega$.
+  - **Comportamiento Pasivo en Arranque:** Durante boot, reset o desconexión de `GPIO 18`, $R_{pd1}$, $R_{pu}$ y $R_{pd2}$ referencian la compuerta de Q3 a $0\,\text{V}$ (verificación física pendiente en `ACT-01.1` con DMM y `ACT-01.2` con osciloscopio).
+  - **Excitación en Activo (Modelo Analítico Condicional):** Con `GPIO 18` en alto (`onsemi PN2222A/D` + `onsemi 2N3906/D`, resistencias $\pm 5\%$), el modelo arroja $\beta_{f,Q1,\text{máx}} = 3.05 < 10$ y $\beta_{f,Q2,\text{máx}} = 0.372 \ll 10$, proyectando $V_{GS,\text{nom}} \approx 4.90\,\text{V}$ y $V_{GS,\text{mín(modelo)}} = 4.50\,\text{V}$ bajo las hipótesis adoptadas ($V_{CC,\text{mín}} = 4.75\,\text{V}$, $|V_{EC2(sat)}| = 0.25\,\text{V}$ y $V_{CE1(sat)} \le 0.30\,\text{V}$). Se distingue estrictamente entre: (1) *resultado matemático del modelo* ($4.90\,\text{V}$ nom. / $4.50\,\text{V}$ peor caso condicional), (2) *límite garantizado por fabricante* (exclusivo para los puntos discretos tabulados en `PN2222A/D`, `2N3906/D` y `PD-91338`, sin interpolación contractual de $R_{DS(on)}$ entre $4.0\,\text{V}$ y $5.0\,\text{V}$) y (3) *resultado experimental* medido en el montaje físico (`ACT-02` y `ACT-03.1`).
   - **Condicionamiento de Diagnóstico Nodal (H-11):**
     * N2 ($0.70\,\text{V}$) solo confirma polarización de juntura; la saturación se evalúa con N3 ($V_{CE1} \le 0.20\,\text{V}$).
     * N4 mide $\approx 4.30\,\text{V}$ en conducción normal ($5.0\,\text{V} - V_{EB2}$), o $\approx 0.98\,\text{V}$ bajo divisor Thévenin pasivo si la base no carga el nodo.
@@ -112,24 +112,19 @@ El firmware adopta una **Arquitectura en Capas Desacoplada (Layered Architecture
 
 ---
 
-## 📊 5. Estado Actual de Git, Ramas, CI y Compilación (OBL-03 / CI-01)
+## 📊 5. Estado Actual de Git, CI, Presupuesto y Validación Física (OBL-03 / CI-01)
 
-- **Rama Base Estable:** `main`
-  * **Commit Base de Referencia:** `45fff8516f0996d9008c5fbe73a0fcde5ecbccf9` (`fix(ci): quote test step name to fix YAML syntax error in workflow`)
-  * **Estado de CI en GitHub Actions (`main`):** Run ID `40367863193` — **`SUCCESS`** (Completado en 1m 6s el 2026-10-26T17:21:35Z).
-- **Rama de Revisión y Auditoría Activa:** `audit/documentation-review`
-  * **Commits Previos Auditados en GitHub:**
-    - `bca15cd9a76b83f9f1ea6b8528a92878eb66e2d4` (Primera auditoría: CRIT-01, OBL-01..03, MEN-01..03).
-    - `7576c0fb10153634004ff62a6c9ab48ecfcb60a5` (Segunda auditoría: OBL-04 separación 20s/25s, CRIT-01/MEN-05 secuencia 6 pasos, MEN-04 medición térmica sin contacto, CI-01).
-    - `d03c0c87424520dd8c3864ad45d3103019f1bc36` (Run ID `40390590538` `SUCCESS`; identificó `NUEVO-01`: precisión de alcance de `test_31`, adición de ejecutable C++ nativo `tests/test_native_controller.cpp` y compilación explícita de entornos de banco `nanoatmega328_bench_wdt25s` y `esp32dev_bench_wdt25s`).
-  * **Estado de CI en rama de auditoría (`CI-01` / `NUEVO-01`):** Flujo `.github/workflows/ci.yml` compila y ejecuta en C++ nativo `include/IrrigationController.h` (tanto en modo producción $20\,\text{s}$ como con `-DFLORACARE_BENCH_TEST_WATCHDOG_25S` $25\,\text{s}$), corre las **78 pruebas automatizadas** en Python y compila los **4 entornos PlatformIO** (`nanoatmega328`, `esp32dev`, `nanoatmega328_bench_wdt25s` y `esp32dev_bench_wdt25s`).
-- **Métricas de Compilación PlatformIO (Producción y Banco Aislado):**
-  - `nanoatmega328` (Producción 20s) y `nanoatmega328_bench_wdt25s` (Banco 25s): Flash: ~57.2%, RAM: 30.0% — **SUCCESS**
-  - `esp32dev` (Producción 20s) y `esp32dev_bench_wdt25s` (Banco 25s): Flash: ~82.6%, RAM: 15.1% — **SUCCESS**
-- **Estado de Pruebas Físicas e Integración Eléctrica:**
-  - Protocolo ACT-01 a ACT-06 formalizado como `LISTA PARA BANCO`, pero **estrictamente pendiente de ejecución y medición física en silicio**.
-  - **Circuito físico:** Completamente desenergizado (0 V).
-  - **Microbomba sumergible JT-DC3W:** Físicamente desconectada de la etapa de potencia.
+- **Rama Principal Consolidada:** `main`
+  * **Último Commit Integrado en `main`:** `09ea3b8c267bc5bc41b7d051ebc18460d77ad44e` (`test(audit): add native C++ controller harness, bench-wdt25s CI builds, and clarify test_31 scope (NUEVO-01)`).
+  * **Estado de CI en GitHub Actions (`main`):** Run ID `40395905307` — **`SUCCESS`** (ejecuta los 2 binarios C++ nativos de `tests/test_native_controller.cpp`, las 78 pruebas en Python y compila los 4 entornos PlatformIO: `nanoatmega328`, `esp32dev`, `nanoatmega328_bench_wdt25s` y `esp32dev_bench_wdt25s`).
+  * **Distinción crítica de alcance:** El éxito de GitHub Actions certifica únicamente la compilación cruzada y las pruebas de software/mocks; **no certifica ni sustituye la validación eléctrica ni térmica del montaje físico**.
+- **Presupuesto Reconciliado por Escenario (`docs/02_LISTA_DE_MATERIALES_Y_COSTOS.md`):**
+  * **Compra Autónoma Solo Nano:** $\$122,100$ producción $+\,\$2,500$ carga banco $= \mathbf{\$124,600\,\text{COP}}$ *(subtotal contable prorrateado al 50% de kits: $\$117,600\,\text{COP}$)*.
+  * **Compra Autónoma Solo ESP32 (Driver BJT):** $\$133,600$ producción $+\,\$2,500$ carga banco $= \mathbf{\$136,100\,\text{COP}}$ *(subtotal contable prorrateado: $\$129,100\,\text{COP}$)*.
+  * **Suite Dual Completa (2 placas armadas completas):** $\$209,200$ producción $+\,\$2,500$ carga banco $= \mathbf{\$211,700\,\text{COP}}$ *(no incluye adquisición de instrumentos de medición ni envíos)*.
+- **Estado Físico y de Aprovisionamiento:**
+  - **Componentes:** No adquiridos todavía ($0$ ensayos físicos ejecutados).
+  - **Circuito físico:** Desenergizado ($0\,\text{V}$); microbomba desconectada.
 
 ---
 
@@ -180,36 +175,44 @@ La suite del repositorio ejecuta **2 binarios C++ nativos** y **78 pruebas autom
 +-------------------------------------------------------------------------------------------------+
 | 5. Protocolo de Pruebas Físicas en Banco Instrumentado: ACT-01 a ACT-06                        |
 |    - Archivo: docs/05_GUIA_DE_DESARROLLO_Y_FASE_A_FASE.md                                      |
-|    - Estado actual: LISTA PARA BANCO (Ninguna prueba ha sido ejecutada en silicio todavía).     |
+|    - Estado actual: PENDIENTE DE BANCO / LAB EXTERNO (0 pruebas físicas ejecutadas todavía).    |
 |    - Requisito obligatorio: Ejecución supervisada en laboratorio antes de operar desatendido.  |
 +-------------------------------------------------------------------------------------------------+
 ```
 
 ---
 
-## 🔬 7. Estado del Protocolo Físico ACT-01 a ACT-06 (TEST-01)
+## 🔬 7. Estado del Protocolo Físico ACT-01 a ACT-06 y Requisitos de Evidencia (TEST-01)
 
-| Código | Objetivo Técnico | Criterio de Aceptación Cuantitativo | Instrumento | Estado Actual |
+| Código | Objetivo Técnico | Criterio de Aceptación Cuantitativo | Instrumento Obligatorio | Estado Actual |
 | :---: | :--- | :--- | :--- | :---: |
-| **ACT-01** | Estado seguro del driver en boot/reset | $V_{GS} \le 0.10\,\text{V}$ en reposo, boot y reset; $I_{leak} < 10\,\mu\text{A}$ | DMM + Osciloscopio | `LISTA PARA BANCO` |
-| **ACT-02** | Excitación de compuerta a 3.3V | $V_{GS} \ge 4.50\,\text{V}$ bajo carga ($15\,\Omega$, $5\,\text{W}$); $T_{\text{res}} \le 60^\circ\text{C}$ sin contacto | DMM + Termocupla/IR | `LISTA PARA BANCO` |
-| **ACT-03** | Conmutación real y estabilidad térmica | $V_{DS} \le 50\,\text{mV}$, $\Delta T \le 15^\circ\text{C}$ tras 20s en agua | DMM + Termómetro IR | `LISTA PARA BANCO` |
-| **ACT-04** | Supresión de transitorios inductivos | $V_{\text{peak}} \le 6.0\,\text{V}$ en Drain con diodo 1N5819 (trigger $+4.50\,\text{V}$) | Osciloscopio $\ge 20\,\text{MHz}$ | `LISTA PARA BANCO` |
-| **ACT-05** | Enclavamiento fail-safe de boya | Corte en $\le 50\,\text{ms}$, $V_{GS} \le 0.10\,\text{V}$ ante fallo/desconexión | DMM + Depósito | `LISTA PARA BANCO` |
-| **ACT-06** | Límites 20s (A1), Watchdog 25s (A2) y HTTP (B) | A1: $20\pm 0.5\,\text{s}$ (`AUTO_MAX_DURATION_REACHED`); A2: $25\pm 0.5\,\text{s}$ (`SAFETY_TIMEOUT`); B: 7 HTTP y $\Delta Heap \le 200\,\text{B}$ | Cronómetro + cURL LAN | `LISTA PARA BANCO` |
+| **`ACT-01.1`** | Corte estático preliminar en boot/reset/hilo suelto | $V_{GS} \le 0.10\,\text{V}$ en DMM y LED testigo OFF (no cierra `ACT-01` por sí sola) | DMM + LED ($330\,\Omega$) | `PENDIENTE DE MEDICIÓN EN BANCO` |
+| **`ACT-01.2`** | Captura determinista Modo 1 (11 trazas) + Vigilancia Modo 2 | Modo 1: $V_{GS(\text{peak})} \le 0.50\,\text{V}$ ($<0.80\,\text{V}$); Modo 2: `0` disparos $\ge +0.50\,\text{V}$ | Osciloscopio $\ge 20\,\text{MHz}$ (2CH) | `PENDIENTE DE INSTRUMENTACIÓN EXTERNA` |
+| **`ACT-02`** | Excitación estática ($15\,\Omega, 5\,\text{W}$, pulso manual $3\,\text{s}$) | $V_{GS} \ge 4.50\,\text{V}$ y criterio experimental $V_{DS} \le 15.0\,\text{mV}$ ($>15\,\text{mV}$ incumple; $>30\,\text{mV}$ aborta) | DMM (exactitud registrada) + Termómetro | `PENDIENTE DE MEDICIÓN EN BANCO` |
+| **`ACT-03.1`** | Conmutación estacionaria con bomba sumergida ($20\,\text{s}$) | $I_{\text{est}} \le 400\,\text{mA}$, $V_{DS} \le 50\,\text{mV}$, $\Delta T \le 15^\circ\text{C}$, $T_{\text{case}} \le 45^\circ\text{C}$ | DMM + Termómetro + Agua | `PENDIENTE DE MEDICIÓN EN BANCO` |
+| **`ACT-03.2`** | Arranque dinámico de bomba (shunt bajo lado en `Source` a `GND_REF`) | $V_{CC,\text{mín(din)}} \ge 4.65\,\text{V}$ e $I_{\text{arranque}} = V_{\text{shunt,peak}}/R_{\text{shunt,real}} \le 1.20\,\text{A}$ | Osciloscopio 2CH + Shunt $0.10\,\Omega$ / Sonda Hall | `PENDIENTE DE INSTRUMENTACIÓN EXTERNA` |
+| **`ACT-04`** | Recorte inductivo Flyback y descarga de compuerta | $V_{DS(\text{peak})} \le V_{CC}+0.60\,\text{V}$ ($\le 6\,\text{V}$), rebote Gate $<0.80\,\text{V}$, registro $t_{f(G)}$ | Osciloscopio $\ge 20\,\text{MHz}$ (2 sondas 10X) | `PENDIENTE DE INSTRUMENTACIÓN EXTERNA` |
+| **`ACT-05.1`** | Bloqueo estacionario `FAULT` ante boya baja o hilo abierto | Pin `D4`/`GPIO 19` pasa a `HIGH`, corte y rechazo de riego manual/web | Boya + DMM + OLED/Serie | `PENDIENTE DE ENSAYO FÍSICO` |
+| **`ACT-05.2`** | Tensión estacionaria de corte en compuerta en fallo | $V_{GS} \le 0.10\,\text{V}$ en estado `FAULT` | DMM en Nodo N5 | `PENDIENTE DE MEDICIÓN EN BANCO` |
+| **`ACT-05.3a`** | Latencia lógica (`D4`/`GPIO 19` $\to$ `D3`/`GPIO 18`) | Orden digital de apagado $\le 60\,\text{ms}$ (no demuestra apagado eléctrico) | Analizador lógico 2CH u Osciloscopio 2CH | `PENDIENTE DE INSTRUMENTACIÓN EXTERNA` |
+| **`ACT-05.3b`** | Latencia eléctrica en 2 capturas independientes (`Drain` y `Gate`) | `ACT-05.3b-1` ($\Delta t_{\text{Drain}} \le 80\,\text{ms}$) y `ACT-05.3b-2` ($\Delta t_{\text{Gate}} \le 80\,\text{ms}$) | **Osciloscopio 2CH** (2 capturas obligatorias) | `PENDIENTE DE INSTRUMENTACIÓN EXTERNA` |
+| **`ACT-06`** | Límites $20\,\text{s}$ (`A1`), Watchdog $25\,\text{s}$ (`A2`) y HTTP (`B`) | A1: $20\pm 0.5\,\text{s}$; A2: $25\pm 0.5\,\text{s}$ + reflasheo prod; B: 7 HTTP y $\Delta Heap \le 200\,\text{B}$ | Cronómetro + DMM + cURL LAN | `PENDIENTE DE MEDICIÓN EN BANCO` |
+
+### Requisitos Obligatorios para Cambiar el Estado de una Prueba Física
+Ninguna prueba podrá marcarse como aprobada sin registrar: (1) fecha, variante (`Nano` o `ESP32`) y commit SHA cargado; (2) marca, modelo, rango, resolución, **exactitud especificada en ese rango** y estado de verificación/calibración de cada instrumento; (3) auditoría óhmica en frío ($\pm 5\%$) y pinout verificado por hoja técnica; y (4) valores numéricos completos y capturas `.PNG`/`.CSV` de osciloscopio para `ACT-01.2`, `ACT-03.2`, `ACT-04` y `ACT-05.3b`.
 
 > [!CAUTION]
 > **Prohibición Estricta de Operación Desatendida:**
-> El sistema **no debe energizarse de forma desatendida** bajo ninguna circunstancia hasta que los 6 ensayos ACT-01 a ACT-06 cuenten con registros numéricos firmados en el cuaderno de laboratorio.
+> El sistema **no debe energizarse de forma desatendida** bajo ninguna circunstancia hasta que todas las sub-verificaciones de `ACT-01` a `ACT-06` cuenten con registros numéricos y capturas firmadas en el cuaderno de laboratorio.
 
 ---
 
 ## 📋 8. Guía de Onboarding para la Siguiente IA
 Si eres un agente de IA que retoma este proyecto:
-1. **Comprueba el estado de Git:** Verifica la rama activa (`main` o `audit/documentation-review`) y ejecuta `git status`.
-2. **No confundas pruebas de software con validación física:** Los 2 ejecutables C++ nativos (`tests/test_native_controller.cpp`) y las 78 pruebas automatizadas en Python demuestran robustez lógica y sintáctica, pero **las pruebas físicas ACT-01 a ACT-06 siguen pendientes de ejecución instrumental**.
-3. **Ten en cuenta las restricciones de diseño:**
-   - La bomba es de 5 V (JT-DC3W). No hay electroválvulas de 12 V.
-   - El sensor capacitivo en ESP32 DEBE ir a 3.3V (pin 34).
-   - El driver ESP32 utiliza la etapa de 2 transistores NPN+PNP para excitar el IRLZ44N a 4.85V.
-4. **Siguiente paso de ingeniería:** Asistir al usuario en la ejecución paso a paso de la prueba **ACT-01** en el banco de prototipado sin carga.
+1. **Comprueba el estado de Git:** Verifica la rama activa (`main` en `09ea3b8c267bc5bc41b7d051ebc18460d77ad44e`) y ejecuta `git status`.
+2. **No confundas pruebas de software con validación física:** Los 2 ejecutables C++ nativos (`tests/test_native_controller.cpp`) y las 78 pruebas automatizadas en Python demuestran robustez lógica y sintáctica, pero **todas las pruebas físicas `ACT-01` a `ACT-06` siguen pendientes**.
+3. **Ten en cuenta las restricciones de diseño y pines vigentes:**
+   - La bomba es de 5 V (`JT-DC3W`); no hay electroválvulas de 12 V. Conmutación estrictamente ON/OFF (sin PWM).
+   - Pines ESP32: Bomba = `GPIO 18`, Flotador = `GPIO 19`, Botón = `GPIO 4`, Buzzer = `GPIO 23`, Sensor (a `3.3V`!) = `GPIO 34`, OLED = `GPIO 21/22`.
+   - Pines Nano: Bomba = `D3`, Flotador = `D4`, Botón = `D2`, Buzzer = `D5`, Sensor = `A0`, OLED = `A4/A5`.
+4. **Siguiente paso de ingeniería:** Tras adquirir componentes, ejecutar primero la auditoría óhmica y de pinout en frío ($0\,\text{V}$) antes de `ACT-01.1`.

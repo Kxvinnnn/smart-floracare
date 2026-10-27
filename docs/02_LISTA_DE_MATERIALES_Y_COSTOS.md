@@ -17,20 +17,18 @@ Esta lista detalla los componentes requeridos para la construcción del sistema 
 
 El proyecto contempla el riego de una **única maceta de interior** desde un **mismo depósito compartido**. Los componentes de control pueden evaluarse como proyectos independientes (Opción A u Opción B) o como una suite de desarrollo dual donde ambas placas quedan armadas y comparten la infraestructura hidráulica:
 
-| Opción de Construcción | Grupo A: Electrónica de Control | Grupo B: Hidráulica y Potencia | Grupo C: Gabinete y Consumibles | Inversión Total Auditada (COP) | Equivalente USD ($1\,\text{USD} \approx 4,000\,\text{COP}$) |
-| :--- | :---: | :---: | :---: | :---: | :---: |
-| **Opción A: Solo Arduino Nano V3** | \$71,100 COP | \$31,500 COP | \$15,000 COP | **\$117,600 COP** | **~$29.40 USD** |
-| **Opción B: Solo ESP32 DevKit V1** | \$82,600 COP | \$31,500 COP | \$15,000 COP | **\$129,100 COP** | **~$32.28 USD** |
-| **Opción Combinada (Ambos Controladores)** | \$153,700 COP | \$31,500 COP | \$24,000 COP | **\$209,200 COP** | **~$52.30 USD** |
+| Escenario de Construcción y Compra | Grupo A: Electrónica de Control | Grupo B: Hidráulica y Potencia | Grupo C: Gabinete y Consumibles | Subtotal Producción | Grupo D: Carga de Banco (`ACT-01`/`02`) | **Desembolso Materiales + Banco (COP)** |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Opción A: Compra Autónoma Solo Nano V3** | \$75,600 COP | \$31,500 COP | \$15,000 COP | **\$122,100 COP** | \$2,500 COP | **\$124,600 COP** (~$31.15 USD) |
+| **Opción B: Compra Autónoma Solo ESP32 DevKit V1** | \$87,100 COP | \$31,500 COP | \$15,000 COP | **\$133,600 COP** | \$2,500 COP | **\$136,100 COP** (~$34.03 USD) |
+| **Opción Combinada: Suite Dual Completa (2 Placas Armadas)** | \$153,700 COP | \$31,500 COP | \$24,000 COP | **\$209,200 COP** | \$2,500 COP | **\$211,700 COP** (~$52.93 USD) |
 
-> [!NOTE] Reconciliación Aritmética de Costos
-> - Si se construye solo la **Opción A (Nano)**: $\$71,100 + \$31,500 + \$15,000 = \$117,600\,\text{COP}$.
-> - Si se construye solo la **Opción B (ESP32)**: $\$82,600 + \$31,500 + \$15,000 = \$129,100\,\text{COP}$.
-> - Si se compran componentes para montar **ambas placas (Opción Combinada)**:
->   - La electrónica se suma de forma completa: $\$71,100 + \$82,600 = \$153,700\,\text{COP}$.
->   - La hidráulica y fuente ($\$31,500\,\text{COP}$) **no se duplica**, ya que se riega una sola planta con el mismo depósito y bomba.
->   - En consumibles y gabinetes, se añade únicamente una segunda caja plástica ($\$9,000\,\text{COP}$), reutilizando el mismo frasco de barniz dieléctrico y el tubo termorretráctil: $\$15,000 + \$9,000 = \$24,000\,\text{COP}$.
->   - Total Combinado: $\$153,700 + \$31,500 + \$24,000 = \mathbf{\$209,200\,\text{COP}}$ (Ahorro por sinergia: $\$37,500\,\text{COP}$).
+> [!NOTE] Reconciliación Aritmética de Kits Indivisibles y Alcance del Presupuesto
+> - **Compra autónoma vs. subtotal contable prorrateado (diferencia de $\$4,500\,\text{COP}$):** En el Grupo A los kits `RES-SPEC` ($\$2,000\,\text{COP}$) y `CAB-01` ($\$7,000\,\text{COP}$) son indivisibles (suma $\$9,000\,\text{COP}$). Al comprar **una sola variante**, deben adquirirse completos:
+>   - **Solo Nano autónomo:** $\$66,600 + \$9,000 = \$75,600\,\text{COP}$ (Grupo A) $+ \$31,500 + \$15,000 = \mathbf{\$122,100\,\text{COP}}$ producción ($+\,\$2,500\,\text{COP}$ banco $= \mathbf{\$124,600\,\text{COP}}$). *(El subtotal contable prorrateado al 50% de kits era $\$71,100 + \$31,500 + \$15,000 = \$117,600\,\text{COP}$ sin banco).*
+>   - **Solo ESP32 autónomo:** $\$78,100 + \$9,000 = \$87,100\,\text{COP}$ (Grupo A) $+ \$31,500 + \$15,000 = \mathbf{\$133,600\,\text{COP}}$ producción ($+\,\$2,500\,\text{COP}$ banco $= \mathbf{\$136,100\,\text{COP}}$). *(El subtotal contable prorrateado al 50% de kits era $\$82,600 + \$31,500 + \$15,000 = \$129,100\,\text{COP}$ sin banco).*
+> - **Opción Combinada (Ambas placas completas armadas para intercambio rápido de 3 vías según `docs/03` §4.6):** `RES-SPEC` y `CAB-01` se compran una sola vez ($\$66,600 + \$78,100 + \$9,000 = \$153,700\,\text{COP}$), Grupo B es único ($\$31,500\,\text{COP}$), Grupo C incluye una segunda caja estanca ($\$24,000\,\text{COP}$) y Grupo D es compartido ($\$2,500\,\text{COP}$) $\implies \mathbf{\$209,200\,\text{COP}}$ producción / **$\$211,700\,\text{COP}$** con banco.
+> - **Alcance del desembolso:** Cubre exclusivamente los materiales del circuito y la carga ficticia presupuestados; **no incluye** la adquisición o alquiler de instrumental de laboratorio (multímetro, termómetro, osciloscopio), herramientas ni costos de transporte o envío.
 
 ---
 
@@ -47,9 +45,9 @@ La siguiente tabla enumera con precisión cada componente del circuito, distingu
 | **SW-01** | Sensor de nivel | Boya magnética reed switch CS-CO058 | 1 por placa | Enclavamiento fail-safe por depósito vacío | `docs/03_DIAGRAMA_Y_CONEXIONES.md` | CONFIRMADO POR CÓDIGO |
 | **BUZ-01** | Transductor acústico | Zumbador piezoeléctrico pasivo 5V/3.3V | 1 por placa | Señalización audible suave de alarmas (850 Hz) | `docs/03_DIAGRAMA_Y_CONEXIONES.md` | CONFIRMADO POR CÓDIGO |
 | **BTN-01** | Pulsador manual | Tact switch 6x6 mm 4 pines | 1 por placa | Disparo de ciclo manual supervisado (3 s) | `docs/03_DIAGRAMA_Y_CONEXIONES.md` | CONFIRMADO POR CÓDIGO |
-| **Q1** | Transistor NPN | 2N2222A / PN2222A / P2N2222A (TO-92, selección provisional) | 1 (Solo ESP32) | Traslador de nivel de entrada del pre-driver (pines funcionales E, B, C sujetos a hoja técnica) | `docs/03_DIAGRAMA_Y_CONEXIONES.md` | SELECCIÓN PROVISIONAL (PINOUT PENDIENTE DE DATASHEET) |
-| **Q2** | Transistor PNP | 2N3906 (TO-92, selección provisional) | 1 (Solo ESP32) | Conmutador de nivel alto a riel de 5V (pines funcionales E, B, C sujetos a hoja técnica) | `docs/03_DIAGRAMA_Y_CONEXIONES.md` | SELECCIÓN PROVISIONAL (PINOUT PENDIENTE DE DATASHEET) |
-| **Q3** | N-MOSFET Logic-Level | Vishay IRLZ44N (TO-220) | 1 por placa | Interruptor de potencia de bajo lado (Low-Side) | `docs/adr/ADR-001-MOSFET-SELECTION.md` | CONFIRMADO POR DOCUMENTACIÓN |
+| **Q1** | Transistor NPN | 2N2222A / PN2222A / P2N2222A (TO-92, ref. modelo `onsemi PN2222A/D`) | 1 (Solo ESP32) | Traslador de nivel de entrada del pre-driver (pines E, B, C sujetos a hoja técnica exacta) | `docs/03_DIAGRAMA_Y_CONEXIONES.md` | SELECCIÓN PROVISIONAL (PINOUT PENDIENTE DE DATASHEET) |
+| **Q2** | Transistor PNP | 2N3906 (TO-92, ref. modelo `onsemi 2N3906/D`) | 1 (Solo ESP32) | Conmutador de nivel alto a riel de 5V (pines E, B, C sujetos a hoja técnica exacta) | `docs/03_DIAGRAMA_Y_CONEXIONES.md` | SELECCIÓN PROVISIONAL (PINOUT PENDIENTE DE DATASHEET) |
+| **Q3** | N-MOSFET Logic-Level | Infineon / IR `IRLZ44N` (`IRLZ44NPbF`, TO-220, doc. `PD-91338`) | 1 por placa | Interruptor de potencia de bajo lado (Low-Side) | `docs/adr/ADR-001-MOSFET-SELECTION.md` | ESPECIFICADO EN DISEÑO (PENDIENTE INSPECCIÓN FÍSICA) |
 | **D1** | Diodo Schottky | 1N5819 ($40\,\text{V}, 1\,\text{A}, V_F \le 0.45\,\text{V}$) | 1 por placa | Supresión rápida de fuerza contraelectromotriz | `docs/adr/ADR-001-MOSFET-SELECTION.md` | CONFIRMADO POR DOCUMENTACIÓN |
 | **R_G_NANO** | Resistencia de compuerta | $1\,\text{k}\Omega$ 1/4W 5% | 1 (Solo Nano) | Limitación de corriente de pico en pin D3 | `docs/03_DIAGRAMA_Y_CONEXIONES.md` | CONFIRMADO POR DOCUMENTACIÓN |
 | **R_PD_NANO**| Resistencia pull-down | $10\,\text{k}\Omega$ 1/4W 5% | 1 (Solo Nano) | Retención de compuerta a GND en boot/reset | `docs/03_DIAGRAMA_Y_CONEXIONES.md` | CONFIRMADO POR DOCUMENTACIÓN |
@@ -79,7 +77,7 @@ La siguiente tabla enumera con precisión cada componente del circuito, distingu
 | **SENS-01** | **Sensor de Suelo Capacitivo v1.2** | Salida analógica proporcional. **Nano a 5V; ESP32 obligatoriamente a 3.3V** | 2 | 1 c/u | Mecabot / RoosTech | \$6,500 | \$13,000 |
 | **PWR-01A**| **Transistor NPN Pre-Driver** | **2N2222A / PN2222A / P2N2222A** (TO-92, selección provisional - pinout variable por fabricante) | 1 | Solo ESP32 | Almacén de electrónica | \$800 | \$800 |
 | **PWR-01B**| **Transistor PNP Pre-Driver** | **2N3906** (TO-92, selección provisional - pinout variable por fabricante) | 1 | Solo ESP32 | Almacén de electrónica | \$700 | \$700 |
-| **PWR-02** | **MOSFET de Potencia IRLZ44N** | **Vishay Siliconix IRLZ44N** ($R_{DS(on)} \le 0.035\,\Omega$ a $V_{GS}=5.0\,\text{V}$) | 2 | 1 c/u | Almacén de electrónica | \$3,000 | \$6,000 |
+| **PWR-02** | **MOSFET de Potencia IRLZ44N** | **Infineon / IR `IRLZ44N`** (`PD-91338`: $R_{DS(on)} \le 0.025\,\Omega$ a $V_{GS}=5.0\,\text{V}$ y $\le 0.035\,\Omega$ a $4.0\,\text{V}$, $T_J=25^\circ\text{C}$; no confundir con `IRLZ44` Vishay `#91328`) | 2 | 1 c/u | Almacén de electrónica | \$3,000 | \$6,000 |
 | **DIO-01** | **Diodo Flyback Schottky** | **1N5819** ($40\,\text{V}, 1\,\text{A}, V_F \le 0.45\,\text{V}$) en antiparalelo con motor | 2 | 1 c/u | Almacén de electrónica | \$600 | \$1,200 |
 | **SW-01** | **Sensor de Flotador de Nivel** | Boya magnética con interruptor reed hermético (CS-CO058 / Horizontal) | 2 | 1 c/u | [Mecabot](https://www.mecabot.com/products/sensor-de-nivel-de-agua-horizontal-cs-co058) / Electronilab | \$12,900 | \$25,800 |
 | **BUZ-01** | **Zumbador Pasivo (Buzzer)** | Transductor piezoeléctrico pasivo 3.3V/5V. Tono suave 850 Hz vía PWM | 2 | 1 c/u | Mecabot / RoosTech | \$1,200 | \$2,400 |
@@ -91,7 +89,7 @@ La siguiente tabla enumera con precisión cada componente del circuito, distingu
 | **CAB-03** | **Cable Micro-USB (ESP32)** | Cable de datos y programación para ESP32 | 1 | Solo ESP32 | Informática / Hogar | \$4,000 | \$4,000 |
 | **SUBTOTAL GRUPO A (COMBINADO)** | | | | | | | **\$153,700 COP** |
 
-*(Subtotal individual asignable: Nano = \$71,100 COP; ESP32 = \$82,600 COP).*
+*(Compra autónoma de Grupo A con kits `RES-SPEC` y `CAB-01` completos: Nano = \$75,600 COP; ESP32 = \$87,100 COP. Subtotal contable prorrateado al 50% de kits: Nano = \$71,100 COP; ESP32 = \$82,600 COP).*
 
 ---
 
@@ -123,14 +121,24 @@ Estos componentes conforman la planta física de riego e impulsión, compartida 
 
 ---
 
+## 🧪 5B. Grupo D: Carga Ficticia y Testigos para Banco (`ACT-01` y `ACT-02`)
+
+| ID | Componente | Especificación Técnica | Cant. | Función en Validación | Precio Est. (COP) |
+| :--- | :--- | :--- | :---: | :--- | :---: |
+| **RLOAD-01** | **Resistencia de Potencia Cerámica** | **$15\,\Omega$, $5\,\text{W}$** ($\pm 5\%$, bobinada/cemento) | 1 | Carga ficticia segura ($I_D \approx 333\,\text{mA}$, $P \approx 1.67\,\text{W}$ a $5\,\text{V}$) en `ACT-02` | \$1,800 |
+| **TEST-LED** | **LED Testigo + Resistencia Serie** | LED difuso $5\,\text{mm}$ + resistencia $330\,\Omega$ ($1/4\,\text{W}$, $5\%$) | 1 kit | Testigo visual preliminar en `ACT-01.1` (no sustituye captura oscilográfica `ACT-01.2`) | \$700 |
+| **SUBTOTAL GRUPO D (BANCO DE PRUEBAS)** | | | | | **\$2,500 COP** |
+
+---
+
 ## 🔬 6. Instrumentación Requerida para Validación en Banco (ACT-01 a ACT-06)
 
-Estos equipos son obligatorios para ejecutar el protocolo físico de aceptación de ingeniería:
+Estos equipos son necesarios para ejecutar el protocolo físico de aceptación (no incluidos en el presupuesto de materiales):
 
-1. **Multímetro Digital (DMM) Calibrado:** Con resolución mínima de $0.1\,\text{mV}$, prueba de diodos y escala de corriente hasta $10\,\text{A}$.
-2. **Osciloscopio Digital (DSO):** Con ancho de banda $\ge 20\,\text{MHz}$ y memoria de disparo único (*single-shot*) para capturar el transitorio inductivo de desconexión en Drain.
-3. **Termómetro Infrarrojo o Termocupla Tipo K:** Con precisión de $\pm 1^\circ\text{C}$ para registrar $T_{\text{case}}$ del MOSFET y diodo.
-4. **Fuente de Alimentación Regulada con Límite de Corriente:** Capaz de suministrar $5.0\,\text{V} \pm 2\%$ con ajuste de protección de sobrecorriente fijado inicialmente en $1.0\,\text{A}$.
+1. **Multímetro Digital (DMM) Verificado/Calibrado:** Con resolución $\le 0.1\,\text{mV}$ en escala DC mV, prueba de diodos y escala de corriente DC $\ge 5\,\text{A}$ ($10\,\text{A}$). Antes de medir es obligatorio registrar marca, modelo, rango, resolución, **exactitud especificada del fabricante en ese rango** y estado de verificación/calibración.
+2. **Osciloscopio Digital (DSO, Laboratorio Externo si no se dispone en taller):** Ancho de banda $\ge 20\,\text{MHz}$, 2 canales, sondas 10X compensadas y disparo único (*Single-Shot*) para cerrar `ACT-01.2` (glitches de boot/reset), `ACT-03.2` (caída dinámica de riel y pico de arranque), `ACT-04` (pico flyback y descarga de compuerta) y `ACT-05.3b` (latencia eléctrica completa de corte).
+3. **Termómetro Infrarrojo (con cinta negra mate $\varepsilon \approx 0.95$) o Termocupla Tipo K:** Para registrar $T_{\text{amb}}$ y $T_{\text{case}}$ sin contacto manual.
+4. **Fuente de Alimentación Regulada:** Capaz de suministrar $5.0\,\text{V} \pm 5\%$ ($2\,\text{A}\text{--}3\,\text{A}$), preferiblemente con límite de sobrecorriente ajustado inicialmente en $1.0\text{--}1.5\,\text{A}$.
 
 ---
 
@@ -138,10 +146,10 @@ Estos equipos son obligatorios para ejecutar el protocolo físico de aceptación
 
 1. **Selección del Driver de Bomba para ESP32:**
    - **FQP30N06L:** Ha sido **rechazado oficialmente** debido a su umbral de compuerta ($V_{GS(th)} = 1.0\,\text{V}-2.5\,\text{V}$), que en condiciones límite no garantiza conducción a 3.3V.
-   - **IRLZ44N Directo:** No posee especificación garantizada de $R_{DS(on)}$ para $V_{GS} \le 3.3\,\text{V}$ en la tabla oficial de Vishay/Infineon.
+   - **IRLZ44N Directo:** No posee especificación garantizada de $R_{DS(on)}$ para $V_{GS} \le 3.3\,\text{V}$ en la tabla oficial de Infineon (`PD-91338`).
    - **Pre-Driver NPN Simple Inversor:** **PROHIBIDO** porque encendería la bomba en el arranque cuando el GPIO está en LOW o High-Z.
-   - **Opción Oficial Adoptada:** **Driver No Inversor Bipolar de 2 Etapas (NPN 2N2222A + PNP 2N3906 + IRLZ44N) (Decisión de diseño sujeta a validación en banco)**, calculada para conmutar la compuerta a nivel óptimo (~4.85V teóricos) preservando lógica activa en alto (`HIGH = ON`, `LOW = OFF`) y asegurando corte estricto en arranque y reset.
-   - **Alternativa Comercial Pendiente de Evaluación:** Módulo MOSFET HW-517 (Dual AOD4184A) sujeto a inspección previa de esquemático interno, tensión de activación a 3.3V, estado en boot/reset y ensayo con carga real de bomba ($V_{DS} \le 50\,\text{mV}$).
+   - **Opción Oficial Adoptada:** **Driver No Inversor Bipolar de 2 Etapas (NPN `2N2222A` + PNP `2N3906` + `IRLZ44N`) — Decisión de diseño sujeta a validación en banco**, cuyo modelo analítico arroja $V_{GS,\text{nom}} \approx 4.90\,\text{V}$ (nominal) y $V_{GS} \ge 4.50\,\text{V}$ bajo las hipótesis adoptadas de peor caso ($V_{CC,\text{mín}} = 4.75\,\text{V}$ e hipótesis $|V_{EC2(sat)}| = 0.25\,\text{V}$), preservando lógica activa en alto (`GPIO 18`: `HIGH = ON`, `LOW = OFF`) y corte pasivo en arranque/reset (pendiente de verificación en `ACT-01` y `ACT-02`).
+   - **Alternativa Comercial Provisional No Verificada (`HW-517`):** Módulo MOSFET `HW-517` (cuya topología varía según fabricante). No debe adquirirse ni montarse como reemplazo directo sin antes levantar su esquemático real, comprobar polaridad no inversora en boot/reset y medir en banco $V_{DS} \le 50\,\text{mV}$ bajo carga real.
    - **Módulos de Relé Electromecánicos: DESCARTADOS OFICIALMENTE.** Los relés Low-Trigger quedan prohibidos por violar el principio fail-safe (arranque accidental durante el reset). Los módulos High-Trigger presentan problemas frecuentes de conmutación marginal con los 3.3V del ESP32 debido a la caída de tensión del optoacoplador interno de 5V, y no garantizan estabilidad transitoria en el encendido.
 2. **Alimentación del Sensor Capacitivo de Suelo:**
    - En **Arduino Nano**: Alimentado a 5.0V. Su salida entrega entre ~2.4V (agua) y ~4.8V (aire), operando dentro del rango del ADC de 10 bits.
