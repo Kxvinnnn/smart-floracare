@@ -115,8 +115,8 @@ El firmware adopta una **Arquitectura en Capas Desacoplada (Layered Architecture
 ## 📊 5. Estado Actual de Git, CI, Presupuesto y Validación Física (OBL-03 / CI-01)
 
 - **Rama Principal Consolidada:** `main`
-  * **Último Commit Integrado en `main`:** `09ea3b8c267bc5bc41b7d051ebc18460d77ad44e` (`test(audit): add native C++ controller harness, bench-wdt25s CI builds, and clarify test_31 scope (NUEVO-01)`).
-  * **Estado de CI en GitHub Actions (`main`):** Run ID `40395905307` — **`SUCCESS`** (ejecuta los 2 binarios C++ nativos de `tests/test_native_controller.cpp`, las 78 pruebas en Python y compila los 4 entornos PlatformIO: `nanoatmega328`, `esp32dev`, `nanoatmega328_bench_wdt25s` y `esp32dev_bench_wdt25s`).
+  * **Último Commit Integrado en `main`:** `a6af86a964226391919b8d12c85de1d2a729867f` (`docs(audit): update electrical models, metrology criteria, and bench protocols (ACT-01..06)`).
+  * **Estado de CI en GitHub Actions (`main`):** Run ID `40553397301` — **`SUCCESS`** (ejecuta los 2 binarios C++ nativos de `tests/test_native_controller.cpp`, las 78 pruebas en Python y compila los 4 entornos PlatformIO: `nanoatmega328`, `esp32dev`, `nanoatmega328_bench_wdt25s` y `esp32dev_bench_wdt25s`).
   * **Distinción crítica de alcance:** El éxito de GitHub Actions certifica únicamente la compilación cruzada y las pruebas de software/mocks; **no certifica ni sustituye la validación eléctrica ni térmica del montaje físico**.
 - **Presupuesto Reconciliado por Escenario (`docs/02_LISTA_DE_MATERIALES_Y_COSTOS.md`):**
   * **Compra Autónoma Solo Nano:** $\$122,100$ producción $+\,\$2,500$ carga banco $= \mathbf{\$124,600\,\text{COP}}$ *(subtotal contable prorrateado al 50% de kits: $\$117,600\,\text{COP}$)*.
@@ -209,7 +209,7 @@ Ninguna prueba podrá marcarse como aprobada sin registrar: (1) fecha, variante 
 
 ## 📋 8. Guía de Onboarding para la Siguiente IA
 Si eres un agente de IA que retoma este proyecto:
-1. **Comprueba el estado de Git:** Verifica la rama activa (`main` en `09ea3b8c267bc5bc41b7d051ebc18460d77ad44e`) y ejecuta `git status`.
+1. **Comprueba el estado de Git:** Verifica la rama activa (`main` en `a6af86a964226391919b8d12c85de1d2a729867f`) y ejecuta `git status`.
 2. **No confundas pruebas de software con validación física:** Los 2 ejecutables C++ nativos (`tests/test_native_controller.cpp`) y las 78 pruebas automatizadas en Python demuestran robustez lógica y sintáctica, pero **todas las pruebas físicas `ACT-01` a `ACT-06` siguen pendientes**.
 3. **Ten en cuenta las restricciones de diseño y pines vigentes:**
    - La bomba es de 5 V (`JT-DC3W`); no hay electroválvulas de 12 V. Conmutación estrictamente ON/OFF (sin PWM).
