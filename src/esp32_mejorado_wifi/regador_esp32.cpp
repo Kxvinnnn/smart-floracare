@@ -122,7 +122,8 @@ static bool     lastButtonState      = HIGH;
 static uint32_t lastButtonDebounceMs = 0;
 
 // Interbloqueo preventivo: inhibe ciclos automáticos tras disparo de watchdog de seguridad (H-156)
-static bool     s_autoInhibitAfterTimeout = false;
+static bool                     s_autoInhibitAfterTimeout = false;
+static FloraCare::ControllerState s_lastCtrlState          = FloraCare::ControllerState::IDLE;
 
 // Estado del pin físico comandado (H-150)
 static bool s_orderedPumpLevel = false;
@@ -728,6 +729,7 @@ static void serveApiWater(const char* body, size_t bodyLen,
     );
 
     if (accepted) {
+        s_autoInhibitAfterTimeout = false;
         queueResponse(200, "application/json", "{\"status\":\"ok\",\"message\":\"Remote watering activated (3s)\"}");
     } else {
         queueResponse(409, "application/json", "{\"status\":\"error\",\"message\":\"Watering rejected by safety FSM\"}");
@@ -1216,11 +1218,25 @@ void loop() {
     const bool pumpShouldRun = controller.update(nowMs, safeWaterLevel, sensorStatus, currentMoisturePct);
     applyPumpActuatorCommand(pumpShouldRun);
 
-    // Si se disparó el watchdog de tiempo máximo, registrar inhibición para impedir re-arranque desatendido
-    if (controller.getLastStopReason() == FloraCare::StopReason::SAFETY_TIMEOUT ||
-        controller.getLastStopReason() == FloraCare::StopReason::AUTO_MAX_DURATION_REACHED) {
-        s_autoInhibitAfterTimeout = true;
+    const FloraCare::ControllerState currentCtrlState = controller.getState();
+
+    // Detección basada en flancos de transición de estado FSM (H-156)
+    // Flanco 1: Transición hacia FAULT por disparo de watchdog/límite automático -> Enclavar inhibición
+    if (s_lastCtrlState == FloraCare::ControllerState::WATERING && currentCtrlState == FloraCare::ControllerState::FAULT) {
+        if (controller.getLastStopReason() == FloraCare::StopReason::SAFETY_TIMEOUT ||
+            controller.getLastStopReason() == FloraCare::StopReason::AUTO_MAX_DURATION_REACHED) {
+            s_autoInhibitAfterTimeout = true;
+        }
     }
+
+    // Flanco 2: Culminación exitosa de un ciclo de riego manual supervisado -> Liberar inhibición
+    if (s_lastCtrlState == FloraCare::ControllerState::WATERING && currentCtrlState == FloraCare::ControllerState::IDLE) {
+        if (controller.getLastStopReason() == FloraCare::StopReason::MANUAL_BURST_COMPLETE) {
+            s_autoInhibitAfterTimeout = false;
+        }
+    }
+
+    s_lastCtrlState = currentCtrlState;
 
     // Alarma acústica no bloqueante ante tanque vacío
     if (!safeWaterLevel) {

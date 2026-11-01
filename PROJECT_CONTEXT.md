@@ -9,7 +9,7 @@
 - **Nombre del Proyecto:** Smart FloraCare (Regador Automático Inteligente de Maceta Única).
 - **Misión de Ingeniería:** Proveer un sistema de autorriego por goteo determinista, silencioso, seguro contra inundaciones por cavitación o efecto sifón, con arquitectura desacoplada de estándar internacional, optimizado ergonómicamente para personas mayores (caso de uso de validación: abuela del creador).
 - **Alcance Operativo Estricto:** Automatización de una **única maceta de interior** desde un **depósito de agua dedicado** (1.5 L a 3.0 L).
-- **Actuador Único Oficial:** **Microbomba sumergible DC de 5 V (JT-DC3W)** impulsada por un riel de 5 V DC regulado externo.
+- **Actuador Único Oficial:** **Microbomba sumergible DC de 5 V (JT-DC3W)** como referencia histórica de diseño, y microbomba **YXC057** como candidata en proceso de adquisición y caracterización eléctrica de banco ($0\,\text{V}$ / pruebas `ACT-01` a `ACT-06`), ambas alimentadas desde un riel de 5 V DC regulado externo.
 - **Resolución de Alcance (H-14):** **No existe ni está prevista ninguna electroválvula de 12 V en la versión v1.2.1**. El sistema carece de rieles de 12 V y no controla válvulas solenoides.
 - **Origen:** Reingeniería profunda del circuito de Wirecora (YouTube Short `KClvikj9jAk`), sustituyendo transistores Darlington con pérdidas y sensores resistivos galvánicos por control de nivel lógico, sensores capacitivos, interlocks de seguridad, API REST securizada y arquitectura en capas.
 
@@ -38,7 +38,7 @@ El firmware adopta una **Arquitectura en Capas Desacoplada (Layered Architecture
 +-------------------------------------------------------------------------------------------------+
 | 3. CAPA DE PROCESAMIENTO DE SEÑALES Y SERVICIOS                                                 |
 |    - SensorValidator.h: Validación analógica, plausibilidad física y cálculo inverso de humedad |
-|    - SignalFilter: Sobremuestreo 16x y promedio móvil para inmunidad a ruido de conmutación     |
+|    - SignalFilter: Filtro IIR monomuestra de 1er orden ($y[n] = (3y[n-1] + x[n])/4$, $\tau \approx 348\,\text{ms}$)  |
 |    - DebounceFilter: Antirrebote no bloqueante para flotador (50 ms) y botón manual (40 ms)     |
 +-------------------------------------------------------------------------------------------------+
                                                 ▲
@@ -99,18 +99,18 @@ El firmware adopta una **Arquitectura en Capas Desacoplada (Layered Architecture
 
 ---
 
-## 🛡️ 4. Seguridad HTTP y Limitaciones de Memoria en ESP32 (SW-02)
+## 🛡️ 4. Seguridad HTTP y Arquitectura de Comunicaciones en ESP32 (SW-02 / H-151 a H-160)
 
-### 4.1 Mecanismos de Seguridad Implementados
-1. **Autenticación Bearer y Formulario:** Exige token secreto en cabecera `Authorization: Bearer <TOKEN>` o en cuerpo `token=<TOKEN>`.
-2. **Comparación en Tiempo Constante (`safeConstantTimeEquals`):** Implementa comparación bit a bit con acumulador volátil XOR sobre la longitud de entrada, reduciendo diferencias temporales basadas en el primer carácter discrepante.
-3. **Validación Canónica de Origen (RFC 6454 / RFC 7231):** Función `validateSingleAuthority()` exige esquema estricto `http://`, compara el Host exclusivamente contra la IP local asignada `WiFi.localIP()` y restringe el puerto estrictamente a `80`.
-4. **Control de Tasa No Bloqueante (Rate Limiting):** Marca temporal `lastFailedAuthMs` que rechaza peticiones sucesivas con `429 Too Many Requests` durante 1000 ms tras un intento fallido, sin retardos bloqueantes.
-5. **Guardia Temprana de Carga Útil:** Rechaza peticiones con `clientContentLength() > 256` con código `413 Payload Too Large`.
+### 4.1 Mecanismos de Seguridad y Transporte Implementados
+1. **Transporte Cooperativo No Bloqueante (`WiFiServer` / `WiFiClient`):** Desacopla por completo la biblioteca síncrona `WebServer`, procesando sockets con lectura cooperativa, colas de salida estáticas y deadline temporal estricto de 150 ms para no retener el ciclo de control.
+2. **Autenticación HMAC-SHA256 con Nonce (Challenge-Response):** Exige desafío criptográfico previo (`/api/challenge`) con nonces de 32 hex únicos de un solo uso en ventana de 15 s, validando la firma HMAC-SHA256 sobre el cuerpo de la petición.
+3. **Validación Sintáctica Estricta (`include/HttpSecurityParser.h`):** Parser desacoplado y compartido con el arnés nativo C++, conforme a RFC 7230 / RFC 9112: exige `Content-Length = 1*DIGIT` (rechaza `+`, `-` o caracteres espurios), prohíbe `Transfer-Encoding`, verifica residuos de cuerpo y valida la terminación estricta de la línea de petición HTTP (`HTTP/1.1`, `HTTP/1.0`).
+4. **Protección contra Fuerza Bruta y Rollover de `millis()` (LRU Unsigned):** Memoria de fallos de autenticación con penalización temporal de 1000 ms y desalojo determinista LRU mediante resta modular sin signo de 32 bits, inmune a desbordamientos temporales.
+5. **Interbloqueo Preventivo de Auto-Riego (Edge-Triggered Latch):** Tras parada por timeout de seguridad (20s/25s), inhibe re-arranques automáticos desatendidos hasta su rearme explícito y confirmación mediante ráfaga manual supervisada de 3 s o normalización de humedad.
 
-### 4.2 Limitaciones Arquitecturales y Riesgo Residual
-- **Asignación Previa de Heap en WebServer:** La biblioteca síncrona `WebServer` de Arduino-ESP32 procesa sockets TCP y ejecuta `malloc()` para almacenar cabeceras antes de transferir el control a `handleApiWater()`. Por lo tanto, el código de aplicación no puede prevenir ataques de denegación de servicio a nivel de red (Slowloris o agotamiento de sockets).
-- **Mitigación Mandatoria:** El dispositivo **debe operar exclusivamente en una red local privada (VLAN IoT)**, con prohibición absoluta de reenvío de puertos WAN a Internet.
+### 4.2 Mitigación Mandatoria y Aislamiento de Red
+- **Entorno de Despliegue:** El dispositivo **debe operar exclusivamente en una red local privada (VLAN IoT)**, con prohibición absoluta de reenvío de puertos WAN a Internet.
+- **Aislamiento de Red:** Prohibición absoluta de reenvío de puertos WAN a Internet o exposición fuera de la subred local.
 
 ---
 
@@ -215,7 +215,7 @@ Si eres un agente de IA que retoma este proyecto:
 1. **Comprueba el estado de Git:** Consulta dinámicamente el HEAD de `main` con `git rev-parse HEAD` y confirma la limpieza del árbol con `git status`. El paquete base de auditoría técnica v1.2.1 parte de `a6af86a`.
 2. **No confundas pruebas de software con validación física:** Los 2 ejecutables C++ nativos (`tests/test_native_controller.cpp`) y las 78 pruebas automatizadas en Python demuestran robustez lógica y sintáctica, pero **todas las pruebas físicas `ACT-01` a `ACT-06` siguen pendientes**.
 3. **Ten en cuenta las restricciones de diseño y pines vigentes:**
-   - La bomba es de 5 V (`JT-DC3W`); no hay electroválvulas de 12 V. Conmutación estrictamente ON/OFF (sin PWM).
+   - La bomba es de 5 V (`JT-DC3W` referencia histórica / `YXC057` candidata); no hay electroválvulas de 12 V. Conmutación estrictamente ON/OFF (sin PWM).
    - Pines ESP32: Bomba = `GPIO 18`, Flotador = `GPIO 19`, Botón = `GPIO 4`, Buzzer = `GPIO 23`, Sensor (a `3.3V`!) = `GPIO 34`, OLED = `GPIO 21/22`.
    - Pines Nano: Bomba = `D3`, Flotador = `D4`, Botón = `D2`, Buzzer = `D5`, Sensor = `A0`, OLED = `A4/A5`.
 4. **Siguiente paso de ingeniería:** Tras adquirir componentes, ejecutar primero la auditoría óhmica y de pinout en frío ($0\,\text{V}$) antes de `ACT-01.1`.

@@ -791,6 +791,110 @@ class TestV418RegressionRefinements(unittest.TestCase):
         self.assertTrue(is_residual_valid(48, 48), "Residual 48 <= 48 debe ser válido")
         self.assertFalse(is_residual_valid(50, 48), "Residual 50 > 48 debe ser rechazado")
 
+    def test_h160_http_request_line_strictness(self):
+        """
+        RFC 7230 §3.1.1: request-line = method SP request-target SP HTTP-version CRLF
+        Verifica el rechazo estricto de versiones con sufijos no permitidos (ej. HTTP/1.1foo, HTTP/1.12).
+        """
+        def parse_request_line_version_strict(line):
+            parts = line.split(" ")
+            if len(parts) < 3:
+                return False
+            method, uri, version = parts[0], parts[1], " ".join(parts[2:])
+            if method not in ("GET", "POST"):
+                return False
+            if not uri.startswith("/"):
+                return False
+            version_trimmed = version.strip()
+            if version_trimmed not in ("HTTP/1.1", "HTTP/1.0"):
+                return False
+            # Rechazar caracteres residuales que no sean espacios/tabs antes de CRLF
+            if not version.startswith("HTTP/1.1") and not version.startswith("HTTP/1.0"):
+                return False
+            tail = version[8:]
+            if tail and not tail.isspace():
+                return False
+            return True
+
+        self.assertTrue(parse_request_line_version_strict("POST /api/water HTTP/1.1"))
+        self.assertTrue(parse_request_line_version_strict("GET / HTTP/1.0"))
+        self.assertTrue(parse_request_line_version_strict("POST /api/water HTTP/1.1   "))
+        self.assertFalse(parse_request_line_version_strict("POST /api/water HTTP/1.1foo"))
+        self.assertFalse(parse_request_line_version_strict("POST /api/water HTTP/1.12"))
+        self.assertFalse(parse_request_line_version_strict("POST /api/water HTTP/2.0"))
+
+    def test_h156_auto_inhibit_edge_lifecycle_python(self):
+        """
+        H-156: Validación de ciclo de vida del inhibidor preventivo automático por flancos FSM:
+        1. Disparo de auto-timeout -> enclava s_autoInhibitAfterTimeout = True.
+        2. Rearme explícito reset_fault() -> regresa a IDLE, pero el inhibidor PERMANECE True.
+        3. Ráfaga manual supervisada de prueba (3s) -> culmina con MANUAL_BURST_COMPLETE.
+        4. Flanco WATERING -> IDLE con MANUAL_BURST_COMPLETE -> libera s_autoInhibitAfterTimeout = False.
+        5. Suelo seco puede reiniciar ciclo automático normalmente tras el enfriamiento.
+        """
+        ctrl = MockIrrigationController()
+        now = 1000
+        dry_moisture = 15
+
+        auto_inhibit = False
+        last_state = ControllerState.IDLE
+
+        def update_inhibit_edges(current_state):
+            nonlocal auto_inhibit, last_state
+            # Flanco 1: WATERING -> FAULT por timeout
+            if last_state == ControllerState.WATERING and current_state == ControllerState.FAULT:
+                if ctrl.last_stop_reason in (StopReason.SAFETY_TIMEOUT, StopReason.AUTO_MAX_DURATION_REACHED):
+                    auto_inhibit = True
+            # Flanco 2: WATERING -> IDLE tras ráfaga manual
+            if last_state == ControllerState.WATERING and current_state == ControllerState.IDLE:
+                if ctrl.last_stop_reason == StopReason.MANUAL_BURST_COMPLETE:
+                    auto_inhibit = False
+            last_state = current_state
+
+        # 1. Iniciar ciclo automático
+        self.assertTrue(ctrl.request_watering(IrrigationSource.AUTO_CYCLE, now, True, SensorHealth.OK, dry_moisture))
+        update_inhibit_edges(ctrl.state)
+        self.assertFalse(auto_inhibit)
+
+        # 2. Alcanzar timeout automático (20s)
+        now += ctrl.max_auto_ms
+        self.assertFalse(ctrl.update(now, True, SensorHealth.OK, dry_moisture))
+        update_inhibit_edges(ctrl.state)
+        self.assertEqual(ctrl.state, ControllerState.FAULT)
+        self.assertTrue(auto_inhibit, "El inhibidor debe enclavarse tras el timeout automático")
+
+        # 3. Rearme explícito local (reset_fault)
+        now += 500
+        self.assertTrue(ctrl.reset_fault(now, True, SensorHealth.OK))
+        update_inhibit_edges(ctrl.state)
+        self.assertEqual(ctrl.state, ControllerState.IDLE)
+        self.assertTrue(auto_inhibit, "El inhibidor DEBE mantenerse activo tras el rearme en reposo")
+
+        # 4. Superar enfriamiento y ejecutar ráfaga manual supervisada (3s)
+        now += ctrl.cooldown_ms + 100
+        self.assertTrue(ctrl.request_watering(IrrigationSource.MANUAL_BUTTON, now, True, SensorHealth.OK, dry_moisture))
+        update_inhibit_edges(ctrl.state)
+        self.assertEqual(ctrl.state, ControllerState.WATERING)
+
+        # Avanzar 1s dentro de la ráfaga (sigue regando)
+        now += 1000
+        self.assertTrue(ctrl.update(now, True, SensorHealth.OK, dry_moisture))
+        update_inhibit_edges(ctrl.state)
+
+        # Completar los 3s de ráfaga
+        now += 2000
+        self.assertFalse(ctrl.update(now, True, SensorHealth.OK, dry_moisture))
+        update_inhibit_edges(ctrl.state)
+        self.assertEqual(ctrl.state, ControllerState.IDLE)
+        self.assertEqual(ctrl.last_stop_reason, StopReason.MANUAL_BURST_COMPLETE)
+        self.assertFalse(auto_inhibit, "El inhibidor DEBE liberarse tras completar la ráfaga manual supervisada")
+
+        # 5. Tras el enfriamiento, el ciclo automático puede volver a arrancar en suelo seco
+        now += ctrl.cooldown_ms + 100
+        self.assertTrue(ctrl.request_watering(IrrigationSource.AUTO_CYCLE, now, True, SensorHealth.OK, dry_moisture))
+        update_inhibit_edges(ctrl.state)
+        self.assertEqual(ctrl.state, ControllerState.WATERING)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

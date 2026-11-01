@@ -108,6 +108,14 @@ inline HttpParseResult parseHttpHeaderStrict(const char* buf, size_t len,
         return PARSE_BAD_REQUEST;
     }
 
+    const char* versionEnd = p + 8;
+    while (versionEnd < lineEnd && (*versionEnd == ' ' || *versionEnd == '\t')) {
+        versionEnd++;
+    }
+    if (versionEnd != lineEnd) {
+        return PARSE_BAD_REQUEST; // Rechaza sufijos espurios como HTTP/1.1foo o HTTP/1.12 (RFC 7230 §3.1.1 / H-160)
+    }
+
     const char* current = lineEnd + 2;
     while (current < buf + len) {
         const char* nextEnd = strstr(current, "\r\n");

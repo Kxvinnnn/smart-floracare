@@ -262,6 +262,19 @@ static int test_http_security_parser_native_cpp() {
     ASSERT_TRUE(parseHttpHeaderStrict(reqTooLarge, strlen(reqTooLarge), uri, sizeof(uri), isGet, isPost, contentLen) == PARSE_PAYLOAD_TOO_LARGE,
                 "Content-Length > 256 must be rejected as PAYLOAD_TOO_LARGE (413)");
 
+    // Rechazo de sufijos espurios en la línea de petición HTTP (H-160 / RFC 7230 §3.1.1)
+    const char reqInvalidVersionSuffix[] = "POST /api/water HTTP/1.1foo\r\nContent-Length: 48\r\n\r\n";
+    ASSERT_TRUE(parseHttpHeaderStrict(reqInvalidVersionSuffix, strlen(reqInvalidVersionSuffix), uri, sizeof(uri), isGet, isPost, contentLen) == PARSE_BAD_REQUEST,
+                "HTTP/1.1foo with trailing characters in request-line must be rejected as BAD_REQUEST");
+
+    const char reqInvalidVersionDigits[] = "POST /api/water HTTP/1.12\r\nContent-Length: 48\r\n\r\n";
+    ASSERT_TRUE(parseHttpHeaderStrict(reqInvalidVersionDigits, strlen(reqInvalidVersionDigits), uri, sizeof(uri), isGet, isPost, contentLen) == PARSE_BAD_REQUEST,
+                "HTTP/1.12 with invalid minor version digits must be rejected as BAD_REQUEST");
+
+    const char reqValidWithTrailingSpace[] = "POST /api/water HTTP/1.1 \r\nContent-Length: 48\r\n\r\n";
+    ASSERT_TRUE(parseHttpHeaderStrict(reqValidWithTrailingSpace, strlen(reqValidWithTrailingSpace), uri, sizeof(uri), isGet, isPost, contentLen) == PARSE_OK,
+                "HTTP/1.1 with trailing space before CRLF must be parsed correctly");
+
     // 3. Verificación de consistencia del residuo del cuerpo (H-160)
     ASSERT_TRUE(isResidualBodyValid(10, 48), "Residual 10 <= 48 must be valid");
     ASSERT_TRUE(isResidualBodyValid(48, 48), "Residual 48 <= 48 must be valid");
@@ -278,11 +291,108 @@ static int test_http_security_parser_native_cpp() {
     return 0;
 }
 
+static int test_auto_inhibit_and_rearm_lifecycle_cpp() {
+    const ControllerConfig cfg = makeDefaultControllerConfig(20, 70);
+    IrrigationController ctrl(cfg);
+
+    bool autoInhibitAfterTimeout = false;
+    ControllerState lastCtrlState = ControllerState::IDLE;
+
+    auto evaluateFsmEdges = [&](ControllerState currentCtrlState) {
+        // Flanco 1: Transición a FAULT por timeout -> Latch
+        if (lastCtrlState == ControllerState::WATERING && currentCtrlState == ControllerState::FAULT) {
+            if (ctrl.getLastStopReason() == StopReason::SAFETY_TIMEOUT ||
+                ctrl.getLastStopReason() == StopReason::AUTO_MAX_DURATION_REACHED) {
+                autoInhibitAfterTimeout = true;
+            }
+        }
+        // Flanco 2: Culminación exitosa de ráfaga manual -> Release
+        if (lastCtrlState == ControllerState::WATERING && currentCtrlState == ControllerState::IDLE) {
+            if (ctrl.getLastStopReason() == StopReason::MANUAL_BURST_COMPLETE) {
+                autoInhibitAfterTimeout = false;
+            }
+        }
+        lastCtrlState = currentCtrlState;
+    };
+
+    uint32_t nowMs = 1000U;
+    const uint8_t dryMoisture = 15; // Suelo seco (<= 20%)
+
+    // 1. Inicio autónomo normal
+    ASSERT_TRUE(ctrl.requestWatering(IrrigationSource::AUTO_CYCLE, nowMs, true, SensorHealth::OK, dryMoisture),
+                "Initial AUTO_CYCLE must start on dry soil");
+    evaluateFsmEdges(ctrl.getState());
+    ASSERT_TRUE(!autoInhibitAfterTimeout, "Inhibit must remain false on watering start");
+
+    // 2. Disparo de límite máximo de bombeo automático
+    const uint32_t timeoutStep = (cfg.maxAutoDurationMs < cfg.maxSafetyWatchdogMs) ? cfg.maxAutoDurationMs : cfg.maxSafetyWatchdogMs;
+    nowMs += timeoutStep;
+    ASSERT_TRUE(!ctrl.update(nowMs, true, SensorHealth::OK, dryMoisture),
+                "Pump must stop at max auto duration");
+    evaluateFsmEdges(ctrl.getState());
+    ASSERT_TRUE(ctrl.getState() == ControllerState::FAULT, "Controller must enter FAULT state");
+    ASSERT_TRUE(autoInhibitAfterTimeout, "Inhibit must be latched to true on auto timeout");
+
+    // 3. Suelo sigue seco: auto-recuperación attemptRecovery DEBE fallar
+    nowMs += 500U;
+    ASSERT_TRUE(!ctrl.attemptRecovery(nowMs, true, SensorHealth::OK),
+                "attemptRecovery must fail for MAX_TIMEOUT_EXCEEDED");
+    evaluateFsmEdges(ctrl.getState());
+    ASSERT_TRUE(autoInhibitAfterTimeout, "Inhibit must remain true in FAULT");
+
+    // 4. Rearme explícito local (resetFault)
+    nowMs += 500U;
+    ASSERT_TRUE(ctrl.resetFault(nowMs, true, SensorHealth::OK),
+                "resetFault must succeed with valid water and sensor");
+    evaluateFsmEdges(ctrl.getState());
+    ASSERT_TRUE(ctrl.getState() == ControllerState::IDLE, "Controller must return to IDLE");
+    // CRÍTICO (H-156): El interbloqueo preventivo DEBE seguir activo para impedir rearranque desatendido
+    ASSERT_TRUE(autoInhibitAfterTimeout, "Inhibit must remain active after resetFault until verified");
+
+    // 5. Verificación: Intento de auto-riego bloqueado por el inhibidor aunque el suelo esté seco
+    nowMs += cfg.cooldownPeriodMs + 100U;
+    ASSERT_TRUE(autoInhibitAfterTimeout, "Guard prevents unattended auto restart while dry");
+
+    // 6. El operador ejecuta una ráfaga manual supervisada (3s) para comprobar el circuito
+    ASSERT_TRUE(ctrl.requestWatering(IrrigationSource::MANUAL_BUTTON, nowMs, true, SensorHealth::OK, dryMoisture),
+                "Supervised manual burst must be accepted");
+    evaluateFsmEdges(ctrl.getState());
+
+    // Durante la ráfaga manual, verificar que el histórico getLastStopReason() NO reactive el latch
+    nowMs += 1000U;
+    ASSERT_TRUE(ctrl.update(nowMs, true, SensorHealth::OK, dryMoisture), "Manual burst in progress");
+    evaluateFsmEdges(ctrl.getState());
+
+    // 7. Culminación de la ráfaga manual (3.000 ms)
+    nowMs += (cfg.manualBurstDurationMs - 1000U);
+    ASSERT_TRUE(!ctrl.update(nowMs, true, SensorHealth::OK, dryMoisture), "Manual burst completed");
+    evaluateFsmEdges(ctrl.getState());
+
+    // CRÍTICO (H-156 corrección): El inhibidor DEBE haber sido liberado tras la prueba supervisada
+    ASSERT_TRUE(ctrl.getState() == ControllerState::IDLE, "Controller must be in IDLE");
+    ASSERT_TRUE(ctrl.getLastStopReason() == StopReason::MANUAL_BURST_COMPLETE, "Stop reason must be MANUAL_BURST_COMPLETE");
+    ASSERT_TRUE(!autoInhibitAfterTimeout, "Inhibit latch MUST be released after manual burst completion, even if soil remains dry");
+
+    // 8. Tras el enfriamiento, el modo automático queda desbloqueado para volver a operar
+    nowMs += cfg.cooldownPeriodMs + 100U;
+    ASSERT_TRUE(!autoInhibitAfterTimeout, "Auto-inhibit remains released");
+    ASSERT_TRUE(ctrl.requestWatering(IrrigationSource::AUTO_CYCLE, nowMs, true, SensorHealth::OK, dryMoisture),
+                "AUTO_CYCLE can now be requested again normally");
+    evaluateFsmEdges(ctrl.getState());
+    ASSERT_TRUE(ctrl.getState() == ControllerState::WATERING, "AUTO_CYCLE is watering");
+
+    printf("[PASS] Native C++ Auto-Inhibit & Supervised Rearm Lifecycle (H-156) verified.\n");
+    return 0;
+}
+
 int main() {
     if (test_common_safety_invariants() != 0) {
         return 1;
     }
     if (test_http_security_parser_native_cpp() != 0) {
+        return 1;
+    }
+    if (test_auto_inhibit_and_rearm_lifecycle_cpp() != 0) {
         return 1;
     }
 #if !defined(FLORACARE_BENCH_TEST_WATCHDOG_25S)
