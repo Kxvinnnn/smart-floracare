@@ -125,12 +125,14 @@ struct ChallengeSlot {
     uint8_t   nonce[16];
     IPAddress clientIp;
     uint32_t  issuedAtMs;
+    uint8_t   failedAttempts;
     bool      valid;
     bool      consumed;
 };
 
 struct IpRateLimitRecord {
     IPAddress clientIp;
+    uint32_t  lastAccessMs;
     uint32_t  lastNonceIssueMs;
     uint32_t  lastAuthFailMs;
     bool      hasIssuedNonce;
@@ -170,7 +172,7 @@ static uint32_t s_connStartMs = 0;
 
 static char   s_rxHdrBuf[512];
 static size_t s_hdrLen = 0;
-static char   s_rxBodyBuf[256];
+static char   s_rxBodyBuf[257]; // 256 bytes de payload + 1 byte de terminador '\0'
 static size_t s_bodyLen = 0;
 static int    s_contentLen = -1;
 static char   s_uri[32];
@@ -316,11 +318,18 @@ static void invalidateAllChallenges() {
     for (size_t i = 0; i < CHALLENGE_POOL_SIZE; ++i) {
         s_challengePool[i].valid = false;
         s_challengePool[i].consumed = true;
+        s_challengePool[i].failedAttempts = 0;
     }
 }
 
-// Salida exclusiva a la etapa de potencia física
+// Salida exclusiva a la etapa de potencia física con interbloqueo por hardware (H-155)
 static void applyPumpActuatorCommand(bool turnOn) {
+    // Interbloqueo físico incondicional por hardware (H-155):
+    // Si la boya indica falta de agua (contacto abierto / HIGH), se niega terminantemente encender la bomba
+    if (turnOn && (digitalRead(PIN_FLOTADOR_AGUA) == HIGH)) {
+        turnOn = false;
+    }
+
     if (turnOn != s_orderedPumpLevel) {
         s_orderedPumpLevel = turnOn;
         digitalWrite(PIN_DRIVER_BOMBA, turnOn ? HIGH : LOW);
@@ -334,12 +343,14 @@ static void applyPumpActuatorCommand(bool turnOn) {
 static IpRateLimitRecord* getOrCreateRateLimit(const IPAddress& ip, uint32_t nowMs) {
     for (size_t i = 0; i < AUTH_FAIL_CACHE_SIZE; ++i) {
         if (s_ipRateLimits[i].active && s_ipRateLimits[i].clientIp == ip) {
+            s_ipRateLimits[i].lastAccessMs = nowMs;
             return &s_ipRateLimits[i];
         }
     }
     for (size_t i = 0; i < AUTH_FAIL_CACHE_SIZE; ++i) {
         if (!s_ipRateLimits[i].active) {
             s_ipRateLimits[i].clientIp = ip;
+            s_ipRateLimits[i].lastAccessMs = nowMs;
             s_ipRateLimits[i].hasIssuedNonce = false;
             s_ipRateLimits[i].hasAuthFailed = false;
             s_ipRateLimits[i].lastNonceIssueMs = 0;
@@ -357,6 +368,7 @@ static IpRateLimitRecord* getOrCreateRateLimit(const IPAddress& ip, uint32_t now
 
         if (issueExpired && failExpired) {
             s_ipRateLimits[i].clientIp = ip;
+            s_ipRateLimits[i].lastAccessMs = nowMs;
             s_ipRateLimits[i].hasIssuedNonce = false;
             s_ipRateLimits[i].hasAuthFailed = false;
             s_ipRateLimits[i].lastNonceIssueMs = 0;
@@ -365,20 +377,21 @@ static IpRateLimitRecord* getOrCreateRateLimit(const IPAddress& ip, uint32_t now
             return &s_ipRateLimits[i];
         }
     }
-    // Desalojo LRU de clientes no bloqueados penalmente
+    // Desalojo LRU genuino de clientes no bloqueados penalmente (H-158)
     int bestLru = -1;
     uint32_t oldestTime = 0xFFFFFFFF;
     for (size_t i = 0; i < AUTH_FAIL_CACHE_SIZE; ++i) {
         const bool underPenalty = s_ipRateLimits[i].hasAuthFailed &&
             (static_cast<uint32_t>(nowMs - s_ipRateLimits[i].lastAuthFailMs) < AUTH_FAIL_COOLDOWN_MS);
-        if (!underPenalty && s_ipRateLimits[i].lastNonceIssueMs < oldestTime) {
-            oldestTime = s_ipRateLimits[i].lastNonceIssueMs;
+        if (!underPenalty && s_ipRateLimits[i].lastAccessMs < oldestTime) {
+            oldestTime = s_ipRateLimits[i].lastAccessMs;
             bestLru = static_cast<int>(i);
         }
     }
 
     if (bestLru >= 0) {
         s_ipRateLimits[bestLru].clientIp = ip;
+        s_ipRateLimits[bestLru].lastAccessMs = nowMs;
         s_ipRateLimits[bestLru].hasIssuedNonce = false;
         s_ipRateLimits[bestLru].hasAuthFailed = false;
         s_ipRateLimits[bestLru].lastNonceIssueMs = 0;
@@ -393,6 +406,7 @@ static IpRateLimitRecord* getOrCreateRateLimit(const IPAddress& ip, uint32_t now
 static bool isIpAuthCoolingDown(const IPAddress& ip, uint32_t nowMs) {
     for (size_t i = 0; i < AUTH_FAIL_CACHE_SIZE; ++i) {
         if (s_ipRateLimits[i].active && s_ipRateLimits[i].clientIp == ip) {
+            s_ipRateLimits[i].lastAccessMs = nowMs;
             if (s_ipRateLimits[i].hasAuthFailed &&
                 static_cast<uint32_t>(nowMs - s_ipRateLimits[i].lastAuthFailMs) < AUTH_FAIL_COOLDOWN_MS) {
                 return true;
@@ -464,6 +478,8 @@ static const char* getHttpStatusPhrase(int code) {
         case 403: return "Forbidden";
         case 404: return "Not Found";
         case 405: return "Method Not Allowed";
+        case 409: return "Conflict";
+        case 411: return "Length Required";
         case 413: return "Payload Too Large";
         case 429: return "Too Many Requests";
         case 500: return "Internal Server Error";
@@ -568,10 +584,14 @@ static HttpParseResult parseHttpHeaderStrict(const char* buf, size_t len,
         if (nextEnd == current) break; // Fin de cabeceras (\r\n\r\n)
 
         if (strncasecmp(current, "Content-Length:", 15) == 0) {
+            if (outContentLen != -1) {
+                return PARSE_BAD_REQUEST; // Múltiples cabeceras Content-Length prohibidas (RFC 7230 §3.3.2)
+            }
             const char* val = current + 15;
             while (*val == ' ' || *val == '\t') val++;
-            long parsedLen = strtol(val, nullptr, 10);
-            if (parsedLen < 0 || parsedLen > 256) return PARSE_PAYLOAD_TOO_LARGE;
+            char* endPtr = nullptr;
+            long parsedLen = strtol(val, &endPtr, 10);
+            if (endPtr == val || parsedLen < 0 || parsedLen > 256) return PARSE_PAYLOAD_TOO_LARGE;
             outContentLen = static_cast<int>(parsedLen);
         }
         current = nextEnd + 2;
@@ -707,10 +727,6 @@ static void serveApiWater(const char* body, size_t bodyLen,
         return;
     }
 
-    // Invalida inmediatamente el nonce para evitar reataques
-    s_challengePool[slotIdx].consumed = true;
-    s_challengePool[slotIdx].valid = false;
-
     // Conversión de clave secreta
     uint8_t binaryKey[16];
     for (size_t i = 0; i < 16; ++i) {
@@ -731,10 +747,19 @@ static void serveApiWater(const char* body, size_t bodyLen,
     }
 
     if (!safeConstantTimeEquals(expectedHmac, receivedHmac, 32)) {
+        s_challengePool[slotIdx].failedAttempts++;
+        if (s_challengePool[slotIdx].failedAttempts >= 2) {
+            s_challengePool[slotIdx].consumed = true;
+            s_challengePool[slotIdx].valid = false;
+        }
         recordAuthFailure(clientIp, nowMs);
         queueResponse(403, "application/json", "{\"status\":\"error\",\"message\":\"HMAC signature mismatch\"}");
         return;
     }
+
+    // HMAC verificado con éxito: consumo atómico e irreversible del desafío (H-157)
+    s_challengePool[slotIdx].consumed = true;
+    s_challengePool[slotIdx].valid = false;
 
     // Solicitud a la FSM centralizada
     const bool accepted = controller.requestWatering(
@@ -798,6 +823,7 @@ static void pollHttpServer(bool currentWaterOk, FloraCare::SensorHealth currentS
             int avail = s_client.available();
             if (avail > 0) {
                 size_t toRead = static_cast<size_t>(avail);
+                if (toRead > 256) toRead = 256; // Rodaja acotada para no demorar el lazo de control (H-160)
                 if (s_hdrLen + toRead >= sizeof(s_rxHdrBuf)) {
                     queueResponse(413, "application/json", "{\"status\":\"error\",\"message\":\"Headers Too Large\"}");
                     return;
@@ -883,6 +909,7 @@ static void pollHttpServer(bool currentWaterOk, FloraCare::SensorHealth currentS
             if (avail > 0) {
                 size_t needed = static_cast<size_t>(s_contentLen) - s_bodyLen;
                 size_t toRead = (static_cast<size_t>(avail) < needed) ? static_cast<size_t>(avail) : needed;
+                if (toRead > 256) toRead = 256; // Rodaja acotada para no demorar el lazo de control (H-160)
 
                 if (s_bodyLen + toRead >= sizeof(s_rxBodyBuf)) {
                     queueResponse(413, "application/json", "{\"status\":\"error\",\"message\":\"Body Too Large\"}");
@@ -967,12 +994,19 @@ static void pollHttpServer(bool currentWaterOk, FloraCare::SensorHealth currentS
 // FUNCIONES AUXILIARES DE SENSOR, DISPLAY Y AUDITORÍA
 // ============================================================================
 static uint16_t sampleAnalogFast() {
-    uint32_t sum = 0;
-    for (uint8_t i = 0; i < 16; ++i) {
-        sum += analogRead(PIN_SENSOR_HUMEDAD);
-        delayMicroseconds(200); // 16 * 200us = 3.2ms
+    // Lectura directa no bloqueante sin retardos síncronos (H-159)
+    // Muestreo SAR instantáneo (~10 µs) con filtrado exponencial de primer orden (IIR)
+    static uint16_t s_filteredAdc = 0;
+    static bool s_initialized = false;
+    const uint16_t raw = static_cast<uint16_t>(analogRead(PIN_SENSOR_HUMEDAD));
+    if (!s_initialized) {
+        s_filteredAdc = raw;
+        s_initialized = true;
+    } else {
+        // Filtro pasabajos IIR: y[n] = (3 * y[n-1] + x[n]) / 4
+        s_filteredAdc = static_cast<uint16_t>(((static_cast<uint32_t>(s_filteredAdc) * 3) + raw) / 4);
     }
-    return static_cast<uint16_t>(sum / 16);
+    return s_filteredAdc;
 }
 
 static void updateDisplay(const char* statusMsg) {
@@ -1063,9 +1097,11 @@ void setup() {
     for (size_t i = 0; i < CHALLENGE_POOL_SIZE; ++i) {
         s_challengePool[i].valid = false;
         s_challengePool[i].consumed = true;
+        s_challengePool[i].failedAttempts = 0;
     }
     for (size_t i = 0; i < AUTH_FAIL_CACHE_SIZE; ++i) {
         s_ipRateLimits[i].active = false;
+        s_ipRateLimits[i].lastAccessMs = 0;
     }
 
     // 7. CONEXIÓN WI-FI Y SERVIDOR HTTP
@@ -1127,7 +1163,11 @@ void loop() {
     static FloraCare::FloatSwitchDebouncer floatDebouncer(digitalRead(PIN_FLOTADOR_AGUA) == LOW);
     waterLevelOk = floatDebouncer.update(rawWaterOk, nowMs);
 
-    // Lectura periódica y acotada del sensor analógico de suelo
+    // Nivel consolidado de agua ultra-seguro (H-155):
+    // Si la lectura física bruta cae, se propaga inmediatamente sin esperar el debounce
+    const bool safeWaterLevel = rawWaterOk && waterLevelOk;
+
+    // Lectura periódica y acotada del sensor analógico de suelo (H-159)
     if (nowMs - lastSampleTimeMs >= 100) {
         lastSampleTimeMs = nowMs;
         const uint16_t rawAdc = sampleAnalogFast();
@@ -1143,8 +1183,27 @@ void loop() {
     }
 
     // ------------------------------------------------------------------------
-    // FASE 2: GESTIÓN DE ENTRADAS LOCALES Y CONTROLADOR DE DOMINIO FSM
+    // FASE 2: GESTIÓN DE ENTRADAS LOCALES Y CONTROLADOR DE DOMINIO FSM (H-156)
     // ------------------------------------------------------------------------
+    // Intento explícito de recuperación condicionada ante retorno a la normalidad
+    if (controller.getState() == FloraCare::ControllerState::FAULT) {
+        controller.attemptRecovery(nowMs, safeWaterLevel, sensorStatus);
+    }
+
+    // Activación autónoma periódica según umbral de humedad de suelo (H-156)
+    if (!controller.isPumpActive() && safeWaterLevel && sensorStatus == FloraCare::SensorHealth::OK) {
+        if (currentMoisturePct <= IRRIGATION_CFG.autoStartMoisturePct) {
+            controller.requestWatering(
+                FloraCare::IrrigationSource::AUTO_CYCLE,
+                nowMs,
+                safeWaterLevel,
+                sensorStatus,
+                currentMoisturePct
+            );
+        }
+    }
+
+    // Gestión del botón físico manual
     const bool currentBtnReading = digitalRead(PIN_BOTON_MANUAL);
     if (currentBtnReading != lastButtonState) {
         lastButtonDebounceMs = nowMs;
@@ -1159,7 +1218,7 @@ void loop() {
                 controller.requestWatering(
                     FloraCare::IrrigationSource::MANUAL_BUTTON,
                     nowMs,
-                    waterLevelOk,
+                    safeWaterLevel,
                     sensorStatus,
                     currentMoisturePct
                 );
@@ -1168,11 +1227,11 @@ void loop() {
     }
 
     // Actualización de la FSM y mando exclusivo al actuador
-    const bool pumpShouldRun = controller.update(nowMs, waterLevelOk, sensorStatus, currentMoisturePct);
+    const bool pumpShouldRun = controller.update(nowMs, safeWaterLevel, sensorStatus, currentMoisturePct);
     applyPumpActuatorCommand(pumpShouldRun);
 
     // Alarma acústica no bloqueante ante tanque vacío
-    if (!waterLevelOk) {
+    if (!safeWaterLevel) {
         if (nowMs - lastBeepTimeMs >= 3000) {
             lastBeepTimeMs = nowMs;
             tone(PIN_BUZZER, 850, 100);
@@ -1187,7 +1246,7 @@ void loop() {
         const char* msg = "REPOSO";
         if (controller.isPumpActive()) {
             msg = (controller.getActiveSource() == FloraCare::IrrigationSource::AUTO_CYCLE) ? "RIEGO AUTO" : "RIEGO MANUAL";
-        } else if (!waterLevelOk) {
+        } else if (!safeWaterLevel) {
             msg = "SIN AGUA";
         } else if (sensorStatus != FloraCare::SensorHealth::OK) {
             msg = "ERR SENSOR";
@@ -1197,7 +1256,7 @@ void loop() {
 
     // Sondeo de la pila de red (acotada internamente a <= 150 ms de deadline)
     if (WiFi.status() == WL_CONNECTED) {
-        pollHttpServer(waterLevelOk, sensorStatus, currentMoisturePct);
+        pollHttpServer(safeWaterLevel, sensorStatus, currentMoisturePct);
     }
 
     // Chequeo de seguridad de cierre de ciclo
