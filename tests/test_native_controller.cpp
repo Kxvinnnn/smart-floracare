@@ -25,6 +25,7 @@
 #include "IrrigationController.h"
 #include "SensorValidator.h"
 #include "HttpSecurityParser.h"
+#include "AutoInhibitTracker.h"
 
 using namespace FloraCare;
 
@@ -271,9 +272,22 @@ static int test_http_security_parser_native_cpp() {
     ASSERT_TRUE(parseHttpHeaderStrict(reqInvalidVersionDigits, strlen(reqInvalidVersionDigits), uri, sizeof(uri), isGet, isPost, contentLen) == PARSE_BAD_REQUEST,
                 "HTTP/1.12 with invalid minor version digits must be rejected as BAD_REQUEST");
 
-    const char reqValidWithTrailingSpace[] = "POST /api/water HTTP/1.1 \r\nContent-Length: 48\r\n\r\n";
-    ASSERT_TRUE(parseHttpHeaderStrict(reqValidWithTrailingSpace, strlen(reqValidWithTrailingSpace), uri, sizeof(uri), isGet, isPost, contentLen) == PARSE_OK,
-                "HTTP/1.1 with trailing space before CRLF must be parsed correctly");
+    // Gramática estricta RFC 7230 §3.1.1: request-line = method SP target SP version CRLF
+    // Se rechazan terminaciones con espacios finales o tabs antes de CRLF
+    const char reqInvalidTrailingSpace[] = "POST /api/water HTTP/1.1 \r\nContent-Length: 48\r\n\r\n";
+    ASSERT_TRUE(parseHttpHeaderStrict(reqInvalidTrailingSpace, strlen(reqInvalidTrailingSpace), uri, sizeof(uri), isGet, isPost, contentLen) == PARSE_BAD_REQUEST,
+                "HTTP/1.1 with trailing space before CRLF must be rejected as BAD_REQUEST");
+
+    const char reqInvalidTrailingTab[] = "POST /api/water HTTP/1.1\t\r\nContent-Length: 48\r\n\r\n";
+    ASSERT_TRUE(parseHttpHeaderStrict(reqInvalidTrailingTab, strlen(reqInvalidTrailingTab), uri, sizeof(uri), isGet, isPost, contentLen) == PARSE_BAD_REQUEST,
+                "HTTP/1.1 with trailing tab before CRLF must be rejected as BAD_REQUEST");
+
+    // Seguridad de memoria ante búfer sin terminador NUL (buffer acotado por len) (H-160)
+    char nonNulBuf[18];
+    memcpy(nonNulBuf, "GET / HTTP/1.1\r\n\r\n", 18);
+    ASSERT_TRUE(parseHttpHeaderStrict(nonNulBuf, 18, uri, sizeof(uri), isGet, isPost, contentLen) == PARSE_OK,
+                "Buffer slice without NUL terminator must be safely parsed bounded by len");
+    ASSERT_TRUE(isGet && strcmp(uri, "/") == 0, "Non-NUL buffer parsed GET / correctly");
 
     // 3. Verificación de consistencia del residuo del cuerpo (H-160)
     ASSERT_TRUE(isResidualBodyValid(10, 48), "Residual 10 <= 48 must be valid");
@@ -294,94 +308,107 @@ static int test_http_security_parser_native_cpp() {
 static int test_auto_inhibit_and_rearm_lifecycle_cpp() {
     const ControllerConfig cfg = makeDefaultControllerConfig(20, 70);
     IrrigationController ctrl(cfg);
-
-    bool autoInhibitAfterTimeout = false;
-    ControllerState lastCtrlState = ControllerState::IDLE;
-
-    auto evaluateFsmEdges = [&](ControllerState currentCtrlState) {
-        // Flanco 1: Transición a FAULT por timeout -> Latch
-        if (lastCtrlState == ControllerState::WATERING && currentCtrlState == ControllerState::FAULT) {
-            if (ctrl.getLastStopReason() == StopReason::SAFETY_TIMEOUT ||
-                ctrl.getLastStopReason() == StopReason::AUTO_MAX_DURATION_REACHED) {
-                autoInhibitAfterTimeout = true;
-            }
-        }
-        // Flanco 2: Culminación exitosa de ráfaga manual -> Release
-        if (lastCtrlState == ControllerState::WATERING && currentCtrlState == ControllerState::IDLE) {
-            if (ctrl.getLastStopReason() == StopReason::MANUAL_BURST_COMPLETE) {
-                autoInhibitAfterTimeout = false;
-            }
-        }
-        lastCtrlState = currentCtrlState;
-    };
+    AutoInhibitTracker tracker;
 
     uint32_t nowMs = 1000U;
     const uint8_t dryMoisture = 15; // Suelo seco (<= 20%)
+    IrrigationSource currentSource = IrrigationSource::NONE;
 
     // 1. Inicio autónomo normal
+    ASSERT_TRUE(!tracker.isInhibited(), "Tracker must start uninhibited");
     ASSERT_TRUE(ctrl.requestWatering(IrrigationSource::AUTO_CYCLE, nowMs, true, SensorHealth::OK, dryMoisture),
                 "Initial AUTO_CYCLE must start on dry soil");
-    evaluateFsmEdges(ctrl.getState());
-    ASSERT_TRUE(!autoInhibitAfterTimeout, "Inhibit must remain false on watering start");
+    currentSource = IrrigationSource::AUTO_CYCLE;
+    tracker.update(ctrl.getState(), ctrl.getLastStopReason(), currentSource, dryMoisture, cfg.autoStartMoisturePct);
+    ASSERT_TRUE(!tracker.isInhibited(), "Tracker must remain uninhibited while watering");
 
-    // 2. Disparo de límite máximo de bombeo automático
+    // 2. Disparo de límite máximo de bombeo automático (timeout de seguridad)
     const uint32_t timeoutStep = (cfg.maxAutoDurationMs < cfg.maxSafetyWatchdogMs) ? cfg.maxAutoDurationMs : cfg.maxSafetyWatchdogMs;
     nowMs += timeoutStep;
     ASSERT_TRUE(!ctrl.update(nowMs, true, SensorHealth::OK, dryMoisture),
                 "Pump must stop at max auto duration");
-    evaluateFsmEdges(ctrl.getState());
+    tracker.update(ctrl.getState(), ctrl.getLastStopReason(), currentSource, dryMoisture, cfg.autoStartMoisturePct);
     ASSERT_TRUE(ctrl.getState() == ControllerState::FAULT, "Controller must enter FAULT state");
-    ASSERT_TRUE(autoInhibitAfterTimeout, "Inhibit must be latched to true on auto timeout");
+    ASSERT_TRUE(tracker.isInhibited(), "AutoInhibitTracker MUST be latched (true) on timeout");
 
-    // 3. Suelo sigue seco: auto-recuperación attemptRecovery DEBE fallar
+    // 3. Suelo sigue seco: auto-recuperación attemptRecovery DEBE fallar incondicionalmente
     nowMs += 500U;
     ASSERT_TRUE(!ctrl.attemptRecovery(nowMs, true, SensorHealth::OK),
                 "attemptRecovery must fail for MAX_TIMEOUT_EXCEEDED");
-    evaluateFsmEdges(ctrl.getState());
-    ASSERT_TRUE(autoInhibitAfterTimeout, "Inhibit must remain true in FAULT");
+    tracker.update(ctrl.getState(), ctrl.getLastStopReason(), currentSource, dryMoisture, cfg.autoStartMoisturePct);
+    ASSERT_TRUE(tracker.isInhibited(), "Tracker must remain inhibited in FAULT");
 
-    // 4. Rearme explícito local (resetFault)
+    // 4. Rearme explícito (resetFault)
     nowMs += 500U;
     ASSERT_TRUE(ctrl.resetFault(nowMs, true, SensorHealth::OK),
                 "resetFault must succeed with valid water and sensor");
-    evaluateFsmEdges(ctrl.getState());
+    tracker.update(ctrl.getState(), ctrl.getLastStopReason(), currentSource, dryMoisture, cfg.autoStartMoisturePct);
     ASSERT_TRUE(ctrl.getState() == ControllerState::IDLE, "Controller must return to IDLE");
-    // CRÍTICO (H-156): El interbloqueo preventivo DEBE seguir activo para impedir rearranque desatendido
-    ASSERT_TRUE(autoInhibitAfterTimeout, "Inhibit must remain active after resetFault until verified");
+    // CRÍTICO (H-156): El interbloqueo preventivo DEBE seguir activo tras el rearme
+    ASSERT_TRUE(tracker.isInhibited(), "Tracker MUST remain inhibited after resetFault until supervised");
 
     // 5. Verificación: Intento de auto-riego bloqueado por el inhibidor aunque el suelo esté seco
     nowMs += cfg.cooldownPeriodMs + 100U;
-    ASSERT_TRUE(autoInhibitAfterTimeout, "Guard prevents unattended auto restart while dry");
+    ASSERT_TRUE(tracker.isInhibited(), "Guard prevents unattended auto restart while dry");
 
-    // 6. El operador ejecuta una ráfaga manual supervisada (3s) para comprobar el circuito
+    // 6. RESTRICCIÓN MANDATORIA DE SEGURIDAD (H-156):
+    // Una activación remota (REMOTE_WEB) NO DEBE liberar el inhibidor preventivo
+    ASSERT_TRUE(ctrl.requestWatering(IrrigationSource::REMOTE_WEB, nowMs, true, SensorHealth::OK, dryMoisture),
+                "Remote burst request accepted by controller");
+    currentSource = IrrigationSource::REMOTE_WEB;
+    tracker.update(ctrl.getState(), ctrl.getLastStopReason(), currentSource, dryMoisture, cfg.autoStartMoisturePct);
+    ASSERT_TRUE(tracker.isInhibited(), "Tracker must remain inhibited during remote burst");
+
+    // Culminación de la ráfaga remota de 3s
+    nowMs += cfg.manualBurstDurationMs;
+    ASSERT_TRUE(!ctrl.update(nowMs, true, SensorHealth::OK, dryMoisture), "Remote burst finished");
+    tracker.update(ctrl.getState(), ctrl.getLastStopReason(), currentSource, dryMoisture, cfg.autoStartMoisturePct);
+    ASSERT_TRUE(ctrl.getState() == ControllerState::IDLE, "Controller is back in IDLE");
+    ASSERT_TRUE(ctrl.getLastStopReason() == StopReason::MANUAL_BURST_COMPLETE, "Stop reason is MANUAL_BURST_COMPLETE");
+    // ASERCIÓN CRÍTICA (H-156): REMOTE_WEB NO LIBERA LA INHIBICIÓN
+    ASSERT_TRUE(tracker.isInhibited(), "REMOTE_WEB MUST NOT release the auto-inhibition latch!");
+
+    // 7. El operador ejecuta una ráfaga manual presencial (MANUAL_BUTTON, 3s)
+    nowMs += cfg.cooldownPeriodMs + 100U;
     ASSERT_TRUE(ctrl.requestWatering(IrrigationSource::MANUAL_BUTTON, nowMs, true, SensorHealth::OK, dryMoisture),
                 "Supervised manual burst must be accepted");
-    evaluateFsmEdges(ctrl.getState());
+    currentSource = IrrigationSource::MANUAL_BUTTON;
+    tracker.update(ctrl.getState(), ctrl.getLastStopReason(), currentSource, dryMoisture, cfg.autoStartMoisturePct);
 
     // Durante la ráfaga manual, verificar que el histórico getLastStopReason() NO reactive el latch
     nowMs += 1000U;
     ASSERT_TRUE(ctrl.update(nowMs, true, SensorHealth::OK, dryMoisture), "Manual burst in progress");
-    evaluateFsmEdges(ctrl.getState());
+    tracker.update(ctrl.getState(), ctrl.getLastStopReason(), currentSource, dryMoisture, cfg.autoStartMoisturePct);
 
-    // 7. Culminación de la ráfaga manual (3.000 ms)
+    // Culminación de la ráfaga manual supervisada (3.000 ms)
     nowMs += (cfg.manualBurstDurationMs - 1000U);
     ASSERT_TRUE(!ctrl.update(nowMs, true, SensorHealth::OK, dryMoisture), "Manual burst completed");
-    evaluateFsmEdges(ctrl.getState());
+    tracker.update(ctrl.getState(), ctrl.getLastStopReason(), currentSource, dryMoisture, cfg.autoStartMoisturePct);
 
-    // CRÍTICO (H-156 corrección): El inhibidor DEBE haber sido liberado tras la prueba supervisada
+    // ASERCIÓN CRÍTICA (H-156 corrección): Culminar MANUAL_BUTTON LOCAL sí libera el latch
     ASSERT_TRUE(ctrl.getState() == ControllerState::IDLE, "Controller must be in IDLE");
     ASSERT_TRUE(ctrl.getLastStopReason() == StopReason::MANUAL_BURST_COMPLETE, "Stop reason must be MANUAL_BURST_COMPLETE");
-    ASSERT_TRUE(!autoInhibitAfterTimeout, "Inhibit latch MUST be released after manual burst completion, even if soil remains dry");
+    ASSERT_TRUE(!tracker.isInhibited(), "AutoInhibitTracker MUST be released after supervised local manual burst");
 
-    // 8. Tras el enfriamiento, el modo automático queda desbloqueado para volver a operar
+    // 8. Tras el enfriamiento, el modo automático queda desbloqueado para volver a operar en suelo seco
     nowMs += cfg.cooldownPeriodMs + 100U;
-    ASSERT_TRUE(!autoInhibitAfterTimeout, "Auto-inhibit remains released");
+    ASSERT_TRUE(!tracker.isInhibited(), "Tracker remains uninhibited");
     ASSERT_TRUE(ctrl.requestWatering(IrrigationSource::AUTO_CYCLE, nowMs, true, SensorHealth::OK, dryMoisture),
                 "AUTO_CYCLE can now be requested again normally");
-    evaluateFsmEdges(ctrl.getState());
+    currentSource = IrrigationSource::AUTO_CYCLE;
+    tracker.update(ctrl.getState(), ctrl.getLastStopReason(), currentSource, dryMoisture, cfg.autoStartMoisturePct);
     ASSERT_TRUE(ctrl.getState() == ControllerState::WATERING, "AUTO_CYCLE is watering");
 
-    printf("[PASS] Native C++ Auto-Inhibit & Supervised Rearm Lifecycle (H-156) verified.\n");
+    // 9. Verificación de liberación por normalización física de humedad
+    nowMs += 1000U;
+    ctrl.stop(StopReason::SAFETY_TIMEOUT, nowMs); // Forzar timeout
+    tracker.update(ctrl.getState(), ctrl.getLastStopReason(), currentSource, dryMoisture, cfg.autoStartMoisturePct);
+    ASSERT_TRUE(tracker.isInhibited(), "Tracker is inhibited again");
+    // La humedad sube por encima del umbral (ej. 45% > 20%)
+    tracker.update(ctrl.getState(), ctrl.getLastStopReason(), currentSource, 45, cfg.autoStartMoisturePct);
+    ASSERT_TRUE(!tracker.isInhibited(), "Tracker MUST be released immediately when soil moisture normalizes");
+
+    printf("[PASS] Native C++ AutoInhibitTracker Production Class Lifecycle (H-156) verified.\n");
     return 0;
 }
 

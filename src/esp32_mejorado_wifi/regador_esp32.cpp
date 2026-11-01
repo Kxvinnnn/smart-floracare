@@ -32,6 +32,7 @@
 #include "IrrigationController.h"
 #include "SensorValidator.h"
 #include "HttpSecurityParser.h"
+#include "AutoInhibitTracker.h"
 
 using FloraCare::HttpParseResult;
 using FloraCare::parseHttpHeaderStrict;
@@ -121,9 +122,9 @@ static bool     waterLevelOk         = true;
 static bool     lastButtonState      = HIGH;
 static uint32_t lastButtonDebounceMs = 0;
 
-// Interbloqueo preventivo: inhibe ciclos automáticos tras disparo de watchdog de seguridad (H-156)
-static bool                     s_autoInhibitAfterTimeout = false;
-static FloraCare::ControllerState s_lastCtrlState          = FloraCare::ControllerState::IDLE;
+// Interbloqueo preventivo de autorriego desatendido tras timeout (H-156)
+static FloraCare::AutoInhibitTracker s_autoInhibitTracker;
+static FloraCare::IrrigationSource   s_currentWateringSource = FloraCare::IrrigationSource::NONE;
 
 // Estado del pin físico comandado (H-150)
 static bool s_orderedPumpLevel = false;
@@ -729,7 +730,7 @@ static void serveApiWater(const char* body, size_t bodyLen,
     );
 
     if (accepted) {
-        s_autoInhibitAfterTimeout = false;
+        s_currentWateringSource = FloraCare::IrrigationSource::REMOTE_WEB;
         queueResponse(200, "application/json", "{\"status\":\"ok\",\"message\":\"Remote watering activated (3s)\"}");
     } else {
         queueResponse(409, "application/json", "{\"status\":\"error\",\"message\":\"Watering rejected by safety FSM\"}");
@@ -1164,20 +1165,18 @@ void loop() {
     }
 
     // Activación autónoma periódica según umbral de humedad de suelo (H-156)
-    // Si la humedad se normaliza por encima del umbral, se libera la inhibición preventiva
-    if (currentMoisturePct > IRRIGATION_CFG.autoStartMoisturePct) {
-        s_autoInhibitAfterTimeout = false;
-    }
-
     if (!controller.isPumpActive() && safeWaterLevel && sensorStatus == FloraCare::SensorHealth::OK) {
-        if (!s_autoInhibitAfterTimeout && currentMoisturePct <= IRRIGATION_CFG.autoStartMoisturePct) {
-            controller.requestWatering(
+        if (!s_autoInhibitTracker.isInhibited() && currentMoisturePct <= IRRIGATION_CFG.autoStartMoisturePct) {
+            const bool reqOk = controller.requestWatering(
                 FloraCare::IrrigationSource::AUTO_CYCLE,
                 nowMs,
                 safeWaterLevel,
                 sensorStatus,
                 currentMoisturePct
             );
+            if (reqOk) {
+                s_currentWateringSource = FloraCare::IrrigationSource::AUTO_CYCLE;
+            }
         }
     }
 
@@ -1200,15 +1199,17 @@ void loop() {
                         tone(PIN_BUZZER, 1200, 100);
                     }
                 } else {
-                    // Toda intervención manual intencionada libera la inhibición de rearme
-                    s_autoInhibitAfterTimeout = false;
-                    controller.requestWatering(
+                    // Ráfaga manual supervisada presencial (H-156)
+                    const bool reqOk = controller.requestWatering(
                         FloraCare::IrrigationSource::MANUAL_BUTTON,
                         nowMs,
                         safeWaterLevel,
                         sensorStatus,
                         currentMoisturePct
                     );
+                    if (reqOk) {
+                        s_currentWateringSource = FloraCare::IrrigationSource::MANUAL_BUTTON;
+                    }
                 }
             }
         }
@@ -1218,25 +1219,14 @@ void loop() {
     const bool pumpShouldRun = controller.update(nowMs, safeWaterLevel, sensorStatus, currentMoisturePct);
     applyPumpActuatorCommand(pumpShouldRun);
 
-    const FloraCare::ControllerState currentCtrlState = controller.getState();
-
-    // Detección basada en flancos de transición de estado FSM (H-156)
-    // Flanco 1: Transición hacia FAULT por disparo de watchdog/límite automático -> Enclavar inhibición
-    if (s_lastCtrlState == FloraCare::ControllerState::WATERING && currentCtrlState == FloraCare::ControllerState::FAULT) {
-        if (controller.getLastStopReason() == FloraCare::StopReason::SAFETY_TIMEOUT ||
-            controller.getLastStopReason() == FloraCare::StopReason::AUTO_MAX_DURATION_REACHED) {
-            s_autoInhibitAfterTimeout = true;
-        }
-    }
-
-    // Flanco 2: Culminación exitosa de un ciclo de riego manual supervisado -> Liberar inhibición
-    if (s_lastCtrlState == FloraCare::ControllerState::WATERING && currentCtrlState == FloraCare::ControllerState::IDLE) {
-        if (controller.getLastStopReason() == FloraCare::StopReason::MANUAL_BURST_COMPLETE) {
-            s_autoInhibitAfterTimeout = false;
-        }
-    }
-
-    s_lastCtrlState = currentCtrlState;
+    // Actualización determinista del interbloqueo preventivo de autorriego (H-156)
+    s_autoInhibitTracker.update(
+        controller.getState(),
+        controller.getLastStopReason(),
+        s_currentWateringSource,
+        currentMoisturePct,
+        IRRIGATION_CFG.autoStartMoisturePct
+    );
 
     // Alarma acústica no bloqueante ante tanque vacío
     if (!safeWaterLevel) {

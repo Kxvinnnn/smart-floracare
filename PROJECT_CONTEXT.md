@@ -119,7 +119,7 @@ El firmware adopta una **Arquitectura en Capas Desacoplada (Layered Architecture
 - **Rama Principal Consolidada:** `main`
   * **Paquete Base de Auditoría Técnica Integrado:** `a6af86a` (`docs(audit): update electrical models, metrology criteria, and bench protocols (ACT-01..06)`).
   * **Comprobación Dinámica del HEAD:** El estado actual del árbol de trabajo debe consultarse dinámicamente con `git rev-parse HEAD` y `git status` sobre la rama `main` para considerar cualquier commit de mantenimiento documental posterior sin recurrir a referencias estáticas obsoletas.
-  * **Estado de CI en GitHub Actions (`main`):** Verificado en **`SUCCESS`** (ejecuta los 2 binarios C++ nativos de `tests/test_native_controller.cpp`, las 78 pruebas en Python y compila los 4 entornos PlatformIO: `nanoatmega328`, `esp32dev`, `nanoatmega328_bench_wdt25s` y `esp32dev_bench_wdt25s`).
+  * **Estado de CI en GitHub Actions:** Configurado para ejecutarse automáticamente en `main`, `audit/**` e `integration/**`, además de `workflow_dispatch` (ejecuta los 2 binarios C++ nativos de `tests/test_native_controller.cpp`, las 38 pruebas consolidadas en Python de `tests/test_irrigation_suite.py` y compila los 4 entornos PlatformIO: `nanoatmega328`, `esp32dev`, `nanoatmega328_bench_wdt25s` y `esp32dev_bench_wdt25s`).
   * **Distinción crítica de alcance:** El éxito de GitHub Actions certifica únicamente la compilación cruzada y las pruebas de software/mocks; **no certifica ni sustituye la validación eléctrica ni térmica del montaje físico**.
 - **Presupuesto Reconciliado por Escenario (`docs/02_LISTA_DE_MATERIALES_Y_COSTOS.md`):**
   * **Compra Autónoma Solo Nano:** $\$122,100$ producción $+\,\$2,500$ carga banco $= \mathbf{\$124,600\,\text{COP}}$ *(subtotal contable prorrateado al 50% de kits: $\$117,600\,\text{COP}$)*.
@@ -133,7 +133,7 @@ El firmware adopta una **Arquitectura en Capas Desacoplada (Layered Architecture
 
 ## 🧪 6. Jerarquía y Taxonomía Formal de Pruebas (SW-01 / OBL-04 / NUEVO-01)
 
-La suite del repositorio ejecuta **2 binarios C++ nativos** y **78 pruebas automatizadas en Python**, además de **4 compilaciones cruzadas PlatformIO**, clasificadas formalmente en:
+La suite del repositorio ejecuta **2 binarios C++ nativos** y **38 pruebas consolidadas en Python** (`tests/test_irrigation_suite.py`), además de **4 compilaciones cruzadas PlatformIO**, clasificadas formalmente en:
 
 ```text
 +-------------------------------------------------------------------------------------------------+
@@ -213,7 +213,7 @@ Ninguna prueba podrá marcarse como aprobada sin registrar: (1) fecha, variante 
 ## 📋 8. Guía de Onboarding para la Siguiente IA
 Si eres un agente de IA que retoma este proyecto:
 1. **Comprueba el estado de Git:** Consulta dinámicamente el HEAD de `main` con `git rev-parse HEAD` y confirma la limpieza del árbol con `git status`. El paquete base de auditoría técnica v1.2.1 parte de `a6af86a`.
-2. **No confundas pruebas de software con validación física:** Los 2 ejecutables C++ nativos (`tests/test_native_controller.cpp`) y las 78 pruebas automatizadas en Python demuestran robustez lógica y sintáctica, pero **todas las pruebas físicas `ACT-01` a `ACT-06` siguen pendientes**.
+2. **No confundas pruebas de software con validación física:** Los 2 ejecutables C++ nativos (`tests/test_native_controller.cpp`) y las 38 pruebas consolidadas en Python demuestran robustez lógica y sintáctica, pero **todas las pruebas físicas `ACT-01` a `ACT-06` siguen pendientes**.
 3. **Ten en cuenta las restricciones de diseño y pines vigentes:**
    - La bomba es de 5 V (`JT-DC3W` referencia histórica / `YXC057` candidata); no hay electroválvulas de 12 V. Conmutación estrictamente ON/OFF (sin PWM).
    - Pines ESP32: Bomba = `GPIO 18`, Flotador = `GPIO 19`, Botón = `GPIO 4`, Buzzer = `GPIO 23`, Sensor (a `3.3V`!) = `GPIO 34`, OLED = `GPIO 21/22`.
