@@ -31,6 +31,19 @@
 
 #include "IrrigationController.h"
 #include "SensorValidator.h"
+#include "HttpSecurityParser.h"
+
+using FloraCare::HttpParseResult;
+using FloraCare::parseHttpHeaderStrict;
+using FloraCare::isResidualBodyValid;
+using FloraCare::isHexStrict;
+using FloraCare::selectLruCandidate;
+using FloraCare::PARSE_OK;
+using FloraCare::PARSE_METHOD_NOT_ALLOWED;
+using FloraCare::PARSE_BAD_URI;
+using FloraCare::PARSE_BAD_REQUEST;
+using FloraCare::PARSE_PAYLOAD_TOO_LARGE;
+using FloraCare::PARSE_NOT_IMPLEMENTED;
 
 // Inclusión de credenciales locales o respaldo seguro
 #if __has_include("Credentials.h")
@@ -107,6 +120,9 @@ static FloraCare::SensorHealth sensorStatus = FloraCare::SensorHealth::OK;
 static bool     waterLevelOk         = true;
 static bool     lastButtonState      = HIGH;
 static uint32_t lastButtonDebounceMs = 0;
+
+// Interbloqueo preventivo: inhibe ciclos automáticos tras disparo de watchdog de seguridad (H-156)
+static bool     s_autoInhibitAfterTimeout = false;
 
 // Estado del pin físico comandado (H-150)
 static bool s_orderedPumpLevel = false;
@@ -380,19 +396,14 @@ static IpRateLimitRecord* getOrCreateRateLimit(const IPAddress& ip, uint32_t now
         }
     }
     // Desalojo LRU genuino y robusto ante desbordamiento (rollover) de millis() (H-158)
-    int bestLru = -1;
-    uint32_t maxAgeMs = 0;
+    uint32_t lastAccessList[AUTH_FAIL_CACHE_SIZE];
+    bool underPenaltyList[AUTH_FAIL_CACHE_SIZE];
     for (size_t i = 0; i < AUTH_FAIL_CACHE_SIZE; ++i) {
-        const bool underPenalty = s_ipRateLimits[i].hasAuthFailed &&
+        lastAccessList[i] = s_ipRateLimits[i].lastAccessMs;
+        underPenaltyList[i] = s_ipRateLimits[i].hasAuthFailed &&
             (static_cast<uint32_t>(nowMs - s_ipRateLimits[i].lastAuthFailMs) < AUTH_FAIL_COOLDOWN_MS);
-        if (!underPenalty) {
-            const uint32_t ageMs = static_cast<uint32_t>(nowMs - s_ipRateLimits[i].lastAccessMs);
-            if (bestLru < 0 || ageMs > maxAgeMs) {
-                maxAgeMs = ageMs;
-                bestLru = static_cast<int>(i);
-            }
-        }
     }
+    const int bestLru = selectLruCandidate(lastAccessList, underPenaltyList, AUTH_FAIL_CACHE_SIZE, nowMs);
 
     if (bestLru >= 0) {
         s_ipRateLimits[bestLru].clientIp = ip;
@@ -539,85 +550,6 @@ static void resetHttpState() {
     s_isBodyProgmem = false;
 }
 
-enum HttpParseResult {
-    PARSE_OK,
-    PARSE_METHOD_NOT_ALLOWED,
-    PARSE_BAD_URI,
-    PARSE_BAD_REQUEST,
-    PARSE_PAYLOAD_TOO_LARGE,
-    PARSE_NOT_IMPLEMENTED
-};
-
-static HttpParseResult parseHttpHeaderStrict(const char* buf, size_t len,
-                                             char* outUri, size_t outUriMax,
-                                             bool& outIsGet, bool& outIsPost,
-                                             int& outContentLen) {
-    outIsGet = false;
-    outIsPost = false;
-    outContentLen = -1;
-    outUri[0] = '\0';
-
-    const char* lineEnd = strstr(buf, "\r\n");
-    if (!lineEnd) return PARSE_BAD_REQUEST;
-
-    const char* p = buf;
-    if (strncmp(p, "GET ", 4) == 0) {
-        outIsGet = true;
-        p += 4;
-    } else if (strncmp(p, "POST ", 5) == 0) {
-        outIsPost = true;
-        p += 5;
-    } else {
-        return PARSE_METHOD_NOT_ALLOWED;
-    }
-
-    const char* space = strchr(p, ' ');
-    if (!space || space > lineEnd) return PARSE_BAD_REQUEST;
-
-    size_t uriLen = space - p;
-    if (uriLen == 0 || uriLen >= outUriMax) return PARSE_BAD_URI;
-    memcpy(outUri, p, uriLen);
-    outUri[uriLen] = '\0';
-
-    p = space + 1;
-    if (strncmp(p, "HTTP/1.1", 8) != 0 && strncmp(p, "HTTP/1.0", 8) != 0) {
-        return PARSE_BAD_REQUEST;
-    }
-
-    const char* current = lineEnd + 2;
-    while (current < buf + len) {
-        const char* nextEnd = strstr(current, "\r\n");
-        if (!nextEnd) break;
-        if (nextEnd == current) break; // Fin de cabeceras (\r\n\r\n)
-
-        // Rechazo explícito de Transfer-Encoding (chunked no soportado en API embebida)
-        if (strncasecmp(current, "Transfer-Encoding:", 18) == 0) {
-            return PARSE_NOT_IMPLEMENTED;
-        }
-
-        if (strncasecmp(current, "Content-Length:", 15) == 0) {
-            if (outContentLen != -1) {
-                return PARSE_BAD_REQUEST; // Múltiples cabeceras Content-Length prohibidas (RFC 7230 §3.3.2)
-            }
-            const char* val = current + 15;
-            while (*val == ' ' || *val == '\t') val++;
-            char* endPtr = nullptr;
-            long parsedLen = strtol(val, &endPtr, 10);
-            if (endPtr == val) return PARSE_BAD_REQUEST;
-            if (parsedLen < 0 || parsedLen > 256) return PARSE_PAYLOAD_TOO_LARGE;
-
-            // Validación estricta: asegurar que no haya sufijos alfanuméricos espurios
-            while (*endPtr == ' ' || *endPtr == '\t') endPtr++;
-            if (endPtr != nextEnd) return PARSE_BAD_REQUEST;
-
-            outContentLen = static_cast<int>(parsedLen);
-        }
-        current = nextEnd + 2;
-    }
-
-    return PARSE_OK;
-}
-
 // ============================================================================
 // ENDPOINTS DE LA API REST
 // ============================================================================
@@ -721,16 +653,6 @@ static void serveApiWater(const char* body, size_t bodyLen,
     }
 
     // Validación sintáctica estricta de caracteres hexadecimales antes de conversión (H-157)
-    auto isHexStrict = [](const char* s, size_t len) -> bool {
-        for (size_t i = 0; i < len; ++i) {
-            const char c = s[i];
-            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
-                return false;
-            }
-        }
-        return true;
-    };
-
     if (!isHexStrict(pNonce, 32) || !isHexStrict(pHmac, 64)) {
         recordAuthFailure(clientIp, nowMs);
         queueResponse(400, "application/json", "{\"status\":\"error\",\"message\":\"Non-hexadecimal characters in security fields\"}");
@@ -923,7 +845,7 @@ static void pollHttpServer(bool currentWaterOk, FloraCare::SensorHealth currentS
                         size_t residual = (s_rxHdrBuf + s_hdrLen) - bodyStart;
                         s_bodyLen = 0;
                         if (residual > 0) {
-                            if (residual > static_cast<size_t>(s_contentLen)) {
+                            if (!isResidualBodyValid(residual, s_contentLen)) {
                                 queueResponse(400, "application/json", "{\"status\":\"error\",\"message\":\"Residual body exceeds Content-Length\"}");
                                 return;
                             }
@@ -1042,9 +964,10 @@ static void pollHttpServer(bool currentWaterOk, FloraCare::SensorHealth currentS
 static uint16_t sampleAnalogFast() {
     // Lectura directa no bloqueante sin retardos síncronos (H-159):
     // Conversión inmediata de disparo único con filtro exponencial paso bajo IIR en punto fijo:
-    // y[n] = (3 * y[n-1] + x[n]) / 4 (constante de tiempo tau aprox. 4 periodos de muestreo = 400 ms).
-    // NOTA: La latencia real de conversión del SAR ADC y la dinámica temporal del filtro son
-    // una aproximación arquitectónica en firmware sujeta a caracterización empírica en banco (ACT-05).
+    // y[n] = (3 * y[n-1] + x[n]) / 4 (constante de tiempo exacta tau = -Ts / ln(0.75) aprox. 348 ms
+    // con Ts = 100 ms; frecuencia de corte aprox. 0.46 Hz).
+    // NOTA: La latencia real de conversión del SAR ADC (~10 us nominal) y la dinámica temporal del filtro
+    // son un modelo de diseño de firmware sujeto a caracterización oscilográfica en banco (ACT-05).
     static uint16_t s_filteredAdc = 0;
     static bool s_initialized = false;
     const uint16_t raw = static_cast<uint16_t>(analogRead(PIN_SENSOR_HUMEDAD));
@@ -1202,7 +1125,7 @@ void loop() {
     // ------------------------------------------------------------------------
     const bool rawWaterOk = (digitalRead(PIN_FLOTADOR_AGUA) == LOW);
     if (!rawWaterOk) {
-        // Corte físico directo e incondicional en hardware
+        // Orden de corte de seguridad en firmware sobre el actuador
         applyPumpActuatorCommand(false);
         controller.stop(FloraCare::StopReason::WATER_DEPLETED, nowMs);
     }
@@ -1239,8 +1162,13 @@ void loop() {
     }
 
     // Activación autónoma periódica según umbral de humedad de suelo (H-156)
+    // Si la humedad se normaliza por encima del umbral, se libera la inhibición preventiva
+    if (currentMoisturePct > IRRIGATION_CFG.autoStartMoisturePct) {
+        s_autoInhibitAfterTimeout = false;
+    }
+
     if (!controller.isPumpActive() && safeWaterLevel && sensorStatus == FloraCare::SensorHealth::OK) {
-        if (currentMoisturePct <= IRRIGATION_CFG.autoStartMoisturePct) {
+        if (!s_autoInhibitAfterTimeout && currentMoisturePct <= IRRIGATION_CFG.autoStartMoisturePct) {
             controller.requestWatering(
                 FloraCare::IrrigationSource::AUTO_CYCLE,
                 nowMs,
@@ -1270,6 +1198,8 @@ void loop() {
                         tone(PIN_BUZZER, 1200, 100);
                     }
                 } else {
+                    // Toda intervención manual intencionada libera la inhibición de rearme
+                    s_autoInhibitAfterTimeout = false;
                     controller.requestWatering(
                         FloraCare::IrrigationSource::MANUAL_BUTTON,
                         nowMs,
@@ -1285,6 +1215,12 @@ void loop() {
     // Actualización de la FSM y mando exclusivo al actuador
     const bool pumpShouldRun = controller.update(nowMs, safeWaterLevel, sensorStatus, currentMoisturePct);
     applyPumpActuatorCommand(pumpShouldRun);
+
+    // Si se disparó el watchdog de tiempo máximo, registrar inhibición para impedir re-arranque desatendido
+    if (controller.getLastStopReason() == FloraCare::StopReason::SAFETY_TIMEOUT ||
+        controller.getLastStopReason() == FloraCare::StopReason::AUTO_MAX_DURATION_REACHED) {
+        s_autoInhibitAfterTimeout = true;
+    }
 
     // Alarma acústica no bloqueante ante tanque vacío
     if (!safeWaterLevel) {

@@ -770,6 +770,8 @@ class TestV418RegressionRefinements(unittest.TestCase):
 
         # Caso válido
         self.assertEqual(parse_content_length_strict(["Content-Length: 48"]), 48)
+        # Rechazo explícito de signo positivo '+' (RFC 7230 §3.3.2 / RFC 9110 §8.6)
+        self.assertEqual(parse_content_length_strict(["Content-Length: +48"]), "MALFORMED_CHARS_BAD_REQUEST")
         # Rechazo de sufijos alfanuméricos ("48abc")
         self.assertEqual(parse_content_length_strict(["Content-Length: 48abc"]), "MALFORMED_CHARS_BAD_REQUEST")
         # Rechazo de múltiples cabeceras Content-Length (RFC 7230 §3.3.2)
@@ -778,6 +780,16 @@ class TestV418RegressionRefinements(unittest.TestCase):
         self.assertEqual(parse_content_length_strict(["Transfer-Encoding: chunked", "Content-Length: 48"]), "NOT_IMPLEMENTED")
         # Rechazo de carga excesiva
         self.assertEqual(parse_content_length_strict(["Content-Length: 300"]), "PAYLOAD_TOO_LARGE")
+
+        # Verificación explícita de guarda de cuerpo residual (H-160)
+        def is_residual_valid(residual_bytes, declared_content_len):
+            if declared_content_len < 0:
+                return False
+            return residual_bytes <= declared_content_len
+
+        self.assertTrue(is_residual_valid(10, 48), "Residual 10 <= 48 debe ser válido")
+        self.assertTrue(is_residual_valid(48, 48), "Residual 48 <= 48 debe ser válido")
+        self.assertFalse(is_residual_valid(50, 48), "Residual 50 > 48 debe ser rechazado")
 
 
 if __name__ == "__main__":

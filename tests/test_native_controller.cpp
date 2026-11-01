@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include "IrrigationController.h"
 #include "SensorValidator.h"
+#include "HttpSecurityParser.h"
 
 using namespace FloraCare;
 
@@ -216,8 +217,72 @@ static int test_isolated_25s_watchdog_limit_cpp() {
 }
 #endif
 
+static int test_http_security_parser_native_cpp() {
+    // 1. Verificación nativa de isHexStrict (H-157)
+    ASSERT_TRUE(isHexStrict("0123456789abcdef0123456789ABCDEF", 32), "Valid 32-char hex must pass");
+    ASSERT_TRUE(isHexStrict("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff", 64), "Valid 64-char hex must pass");
+    ASSERT_TRUE(!isHexStrict("0123456789abcdef0123456789ABCDEG", 32), "Non-hex char 'G' must fail");
+    ASSERT_TRUE(!isHexStrict("0123456789abcdef0123456789ABCDE+", 32), "Non-hex char '+' must fail");
+    ASSERT_TRUE(!isHexStrict("0123456789abcdef0123456789ABCDE!", 32), "Non-hex char '!' must fail");
+
+    // 2. Verificación nativa del parser estricto de Content-Length (H-160)
+    char uri[32];
+    bool isGet = false, isPost = false;
+    int contentLen = -1;
+
+    // Caso nominal
+    const char reqOk[] = "POST /api/water HTTP/1.1\r\nHost: 192.168.1.50\r\nContent-Length: 48\r\n\r\n";
+    ASSERT_TRUE(parseHttpHeaderStrict(reqOk, strlen(reqOk), uri, sizeof(uri), isGet, isPost, contentLen) == PARSE_OK,
+                "Valid Content-Length: 48 must be accepted");
+    ASSERT_TRUE(contentLen == 48, "Parsed Content-Length must be 48");
+    ASSERT_TRUE(isPost && strcmp(uri, "/api/water") == 0, "URI and method must match");
+
+    // Rechazo de signo positivo '+' en Content-Length (RFC 7230 §3.3.2)
+    const char reqPlus[] = "POST /api/water HTTP/1.1\r\nContent-Length: +48\r\n\r\n";
+    ASSERT_TRUE(parseHttpHeaderStrict(reqPlus, strlen(reqPlus), uri, sizeof(uri), isGet, isPost, contentLen) == PARSE_BAD_REQUEST,
+                "Content-Length: +48 with explicit plus sign must be rejected as BAD_REQUEST");
+
+    // Rechazo de sufijos alfanuméricos espurios
+    const char reqSuffix[] = "POST /api/water HTTP/1.1\r\nContent-Length: 48abc\r\n\r\n";
+    ASSERT_TRUE(parseHttpHeaderStrict(reqSuffix, strlen(reqSuffix), uri, sizeof(uri), isGet, isPost, contentLen) == PARSE_BAD_REQUEST,
+                "Content-Length: 48abc with non-numeric suffix must be rejected as BAD_REQUEST");
+
+    // Rechazo de cabeceras duplicadas
+    const char reqDup[] = "POST /api/water HTTP/1.1\r\nContent-Length: 48\r\nContent-Length: 48\r\n\r\n";
+    ASSERT_TRUE(parseHttpHeaderStrict(reqDup, strlen(reqDup), uri, sizeof(uri), isGet, isPost, contentLen) == PARSE_BAD_REQUEST,
+                "Duplicate Content-Length headers must be rejected as BAD_REQUEST");
+
+    // Rechazo explícito de Transfer-Encoding
+    const char reqChunked[] = "POST /api/water HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n";
+    ASSERT_TRUE(parseHttpHeaderStrict(reqChunked, strlen(reqChunked), uri, sizeof(uri), isGet, isPost, contentLen) == PARSE_NOT_IMPLEMENTED,
+                "Transfer-Encoding must be rejected as NOT_IMPLEMENTED (501)");
+
+    // Rechazo de carga excesiva (> 256 bytes)
+    const char reqTooLarge[] = "POST /api/water HTTP/1.1\r\nContent-Length: 300\r\n\r\n";
+    ASSERT_TRUE(parseHttpHeaderStrict(reqTooLarge, strlen(reqTooLarge), uri, sizeof(uri), isGet, isPost, contentLen) == PARSE_PAYLOAD_TOO_LARGE,
+                "Content-Length > 256 must be rejected as PAYLOAD_TOO_LARGE (413)");
+
+    // 3. Verificación de consistencia del residuo del cuerpo (H-160)
+    ASSERT_TRUE(isResidualBodyValid(10, 48), "Residual 10 <= 48 must be valid");
+    ASSERT_TRUE(isResidualBodyValid(48, 48), "Residual 48 <= 48 must be valid");
+    ASSERT_TRUE(!isResidualBodyValid(50, 48), "Residual 50 > 48 must be rejected");
+
+    // 4. Verificación de política LRU y rollover de millis() (H-158)
+    const uint32_t nowMs = 500U;
+    const uint32_t lastAccess[3] = { 0xFFFFFF00U, 200U, 100U };
+    const bool underPenalty[3] = { false, false, true };
+    int candidate = selectLruCandidate(lastAccess, underPenalty, 3, nowMs);
+    ASSERT_TRUE(candidate == 0, "LRU must select slot 0 with greatest age (756 ms vs 300 ms across rollover)");
+
+    printf("[PASS] Native C++ HTTP & Security Utilities: isHexStrict, parseHttpHeaderStrict, residual check and LRU rollover verified.\n");
+    return 0;
+}
+
 int main() {
     if (test_common_safety_invariants() != 0) {
+        return 1;
+    }
+    if (test_http_security_parser_native_cpp() != 0) {
         return 1;
     }
 #if !defined(FLORACARE_BENCH_TEST_WATCHDOG_25S)
