@@ -322,10 +322,12 @@ static void invalidateAllChallenges() {
     }
 }
 
-// Salida exclusiva a la etapa de potencia física con interbloqueo por hardware (H-155)
+// Salida exclusiva a la etapa de potencia física con guarda incondicional de firmware (H-155)
 static void applyPumpActuatorCommand(bool turnOn) {
-    // Interbloqueo físico incondicional por hardware (H-155):
-    // Si la boya indica falta de agua (contacto abierto / HIGH), se niega terminantemente encender la bomba
+    // Guarda de firmware incondicional previa a excitación (H-155):
+    // Si la lectura directa de la boya indica falta de agua (HIGH), el microcontrolador niega el encendido.
+    // NOTA: Esta guarda es una mitigación lógica en firmware; la validación eléctrica independiente
+    // del corte físico en potencia permanece sujeta a los ensayos en banco ACT-05.
     if (turnOn && (digitalRead(PIN_FLOTADOR_AGUA) == HIGH)) {
         turnOn = false;
     }
@@ -377,15 +379,18 @@ static IpRateLimitRecord* getOrCreateRateLimit(const IPAddress& ip, uint32_t now
             return &s_ipRateLimits[i];
         }
     }
-    // Desalojo LRU genuino de clientes no bloqueados penalmente (H-158)
+    // Desalojo LRU genuino y robusto ante desbordamiento (rollover) de millis() (H-158)
     int bestLru = -1;
-    uint32_t oldestTime = 0xFFFFFFFF;
+    uint32_t maxAgeMs = 0;
     for (size_t i = 0; i < AUTH_FAIL_CACHE_SIZE; ++i) {
         const bool underPenalty = s_ipRateLimits[i].hasAuthFailed &&
             (static_cast<uint32_t>(nowMs - s_ipRateLimits[i].lastAuthFailMs) < AUTH_FAIL_COOLDOWN_MS);
-        if (!underPenalty && s_ipRateLimits[i].lastAccessMs < oldestTime) {
-            oldestTime = s_ipRateLimits[i].lastAccessMs;
-            bestLru = static_cast<int>(i);
+        if (!underPenalty) {
+            const uint32_t ageMs = static_cast<uint32_t>(nowMs - s_ipRateLimits[i].lastAccessMs);
+            if (bestLru < 0 || ageMs > maxAgeMs) {
+                maxAgeMs = ageMs;
+                bestLru = static_cast<int>(i);
+            }
         }
     }
 
@@ -483,6 +488,7 @@ static const char* getHttpStatusPhrase(int code) {
         case 413: return "Payload Too Large";
         case 429: return "Too Many Requests";
         case 500: return "Internal Server Error";
+        case 501: return "Not Implemented";
         case 503: return "Service Unavailable";
         default:  return "Unknown";
     }
@@ -538,7 +544,8 @@ enum HttpParseResult {
     PARSE_METHOD_NOT_ALLOWED,
     PARSE_BAD_URI,
     PARSE_BAD_REQUEST,
-    PARSE_PAYLOAD_TOO_LARGE
+    PARSE_PAYLOAD_TOO_LARGE,
+    PARSE_NOT_IMPLEMENTED
 };
 
 static HttpParseResult parseHttpHeaderStrict(const char* buf, size_t len,
@@ -583,6 +590,11 @@ static HttpParseResult parseHttpHeaderStrict(const char* buf, size_t len,
         if (!nextEnd) break;
         if (nextEnd == current) break; // Fin de cabeceras (\r\n\r\n)
 
+        // Rechazo explícito de Transfer-Encoding (chunked no soportado en API embebida)
+        if (strncasecmp(current, "Transfer-Encoding:", 18) == 0) {
+            return PARSE_NOT_IMPLEMENTED;
+        }
+
         if (strncasecmp(current, "Content-Length:", 15) == 0) {
             if (outContentLen != -1) {
                 return PARSE_BAD_REQUEST; // Múltiples cabeceras Content-Length prohibidas (RFC 7230 §3.3.2)
@@ -591,7 +603,13 @@ static HttpParseResult parseHttpHeaderStrict(const char* buf, size_t len,
             while (*val == ' ' || *val == '\t') val++;
             char* endPtr = nullptr;
             long parsedLen = strtol(val, &endPtr, 10);
-            if (endPtr == val || parsedLen < 0 || parsedLen > 256) return PARSE_PAYLOAD_TOO_LARGE;
+            if (endPtr == val) return PARSE_BAD_REQUEST;
+            if (parsedLen < 0 || parsedLen > 256) return PARSE_PAYLOAD_TOO_LARGE;
+
+            // Validación estricta: asegurar que no haya sufijos alfanuméricos espurios
+            while (*endPtr == ' ' || *endPtr == '\t') endPtr++;
+            if (endPtr != nextEnd) return PARSE_BAD_REQUEST;
+
             outContentLen = static_cast<int>(parsedLen);
         }
         current = nextEnd + 2;
@@ -702,6 +720,23 @@ static void serveApiWater(const char* body, size_t bodyLen,
         return;
     }
 
+    // Validación sintáctica estricta de caracteres hexadecimales antes de conversión (H-157)
+    auto isHexStrict = [](const char* s, size_t len) -> bool {
+        for (size_t i = 0; i < len; ++i) {
+            const char c = s[i];
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    if (!isHexStrict(pNonce, 32) || !isHexStrict(pHmac, 64)) {
+        recordAuthFailure(clientIp, nowMs);
+        queueResponse(400, "application/json", "{\"status\":\"error\",\"message\":\"Non-hexadecimal characters in security fields\"}");
+        return;
+    }
+
     uint8_t reqNonce[16];
     for (size_t i = 0; i < 16; ++i) {
         char byteStr[3] = { pNonce[i*2], pNonce[i*2+1], '\0' };
@@ -794,21 +829,25 @@ static void pollHttpServer(bool currentWaterOk, FloraCare::SensorHealth currentS
 
     switch (s_connState) {
         case HTTP_STATE_IDLE: {
-            s_client = s_httpServer.accept();
-            if (s_client) {
-                const int fd = s_client.fd();
-                if (fd >= 0) {
-                    const int flags = fcntl(fd, F_GETFL, 0);
-                    if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-                        s_client.stop();
-                        return;
+            // NetworkServer::begin() configura O_NONBLOCK en el socket de escucha (NetworkServer.cpp:127).
+            // hasClient() y accept() operan en modo no bloqueante sin retener la CPU.
+            if (s_httpServer.hasClient()) {
+                s_client = s_httpServer.accept();
+                if (s_client) {
+                    const int fd = s_client.fd();
+                    if (fd >= 0) {
+                        const int flags = fcntl(fd, F_GETFL, 0);
+                        if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+                            s_client.stop();
+                            return;
+                        }
                     }
+                    s_connStartMs = nowMs;
+                    s_hdrLen = 0;
+                    s_bodyLen = 0;
+                    s_contentLen = -1;
+                    s_connState = HTTP_STATE_READ_HEADERS;
                 }
-                s_connStartMs = nowMs;
-                s_hdrLen = 0;
-                s_bodyLen = 0;
-                s_contentLen = -1;
-                s_connState = HTTP_STATE_READ_HEADERS;
             }
             break;
         }
@@ -854,6 +893,9 @@ static void pollHttpServer(bool currentWaterOk, FloraCare::SensorHealth currentS
                         case PARSE_PAYLOAD_TOO_LARGE:
                             queueResponse(413, "application/json", "{\"status\":\"error\",\"message\":\"Payload Too Large\"}");
                             return;
+                        case PARSE_NOT_IMPLEMENTED:
+                            queueResponse(501, "application/json", "{\"status\":\"error\",\"message\":\"Not Implemented (Transfer-Encoding not supported)\"}");
+                            return;
                     }
 
                     if (s_isGet) {
@@ -881,6 +923,10 @@ static void pollHttpServer(bool currentWaterOk, FloraCare::SensorHealth currentS
                         size_t residual = (s_rxHdrBuf + s_hdrLen) - bodyStart;
                         s_bodyLen = 0;
                         if (residual > 0) {
+                            if (residual > static_cast<size_t>(s_contentLen)) {
+                                queueResponse(400, "application/json", "{\"status\":\"error\",\"message\":\"Residual body exceeds Content-Length\"}");
+                                return;
+                            }
                             if (residual > sizeof(s_rxBodyBuf) - 1) residual = sizeof(s_rxBodyBuf) - 1;
                             memcpy(s_rxBodyBuf, bodyStart, residual);
                             s_bodyLen = residual;
@@ -994,8 +1040,11 @@ static void pollHttpServer(bool currentWaterOk, FloraCare::SensorHealth currentS
 // FUNCIONES AUXILIARES DE SENSOR, DISPLAY Y AUDITORÍA
 // ============================================================================
 static uint16_t sampleAnalogFast() {
-    // Lectura directa no bloqueante sin retardos síncronos (H-159)
-    // Muestreo SAR instantáneo (~10 µs) con filtrado exponencial de primer orden (IIR)
+    // Lectura directa no bloqueante sin retardos síncronos (H-159):
+    // Conversión inmediata de disparo único con filtro exponencial paso bajo IIR en punto fijo:
+    // y[n] = (3 * y[n-1] + x[n]) / 4 (constante de tiempo tau aprox. 4 periodos de muestreo = 400 ms).
+    // NOTA: La latencia real de conversión del SAR ADC y la dinámica temporal del filtro son
+    // una aproximación arquitectónica en firmware sujeta a caracterización empírica en banco (ACT-05).
     static uint16_t s_filteredAdc = 0;
     static bool s_initialized = false;
     const uint16_t raw = static_cast<uint16_t>(analogRead(PIN_SENSOR_HUMEDAD));
@@ -1003,7 +1052,6 @@ static uint16_t sampleAnalogFast() {
         s_filteredAdc = raw;
         s_initialized = true;
     } else {
-        // Filtro pasabajos IIR: y[n] = (3 * y[n-1] + x[n]) / 4
         s_filteredAdc = static_cast<uint16_t>(((static_cast<uint32_t>(s_filteredAdc) * 3) + raw) / 4);
     }
     return s_filteredAdc;
@@ -1215,13 +1263,21 @@ void loop() {
         if (currentBtnReading != s_buttonStableState) {
             s_buttonStableState = currentBtnReading;
             if (s_buttonStableState == LOW) { // Pulsación activa a tierra
-                controller.requestWatering(
-                    FloraCare::IrrigationSource::MANUAL_BUTTON,
-                    nowMs,
-                    safeWaterLevel,
-                    sensorStatus,
-                    currentMoisturePct
-                );
+                if (controller.getState() == FloraCare::ControllerState::FAULT) {
+                    // Procedimiento explícito de rearme local ante fallos bloqueantes (ej. MAX_TIMEOUT_EXCEEDED) (H-156)
+                    const bool rearmed = controller.resetFault(nowMs, safeWaterLevel, sensorStatus);
+                    if (rearmed) {
+                        tone(PIN_BUZZER, 1200, 100);
+                    }
+                } else {
+                    controller.requestWatering(
+                        FloraCare::IrrigationSource::MANUAL_BUTTON,
+                        nowMs,
+                        safeWaterLevel,
+                        sensorStatus,
+                        currentMoisturePct
+                    );
+                }
             }
         }
     }

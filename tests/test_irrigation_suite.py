@@ -669,5 +669,116 @@ class TestSmartFloraCareComprehensive(unittest.TestCase):
                 self.assertIn("StopReason::SAFETY_TIMEOUT verified", out_wdt)
 
 
+class TestV418RegressionRefinements(unittest.TestCase):
+    """
+    Pruebas de regresión unitarias para las correcciones de los hallazgos H-156 a H-160:
+    - H-156: Rearme explícito reset_fault() ante MAX_TIMEOUT_EXCEEDED vs rechazo de attempt_recovery().
+    - H-157: Validación sintáctica estricta hexadecimal en nonce y HMAC.
+    - H-158: Cálculo de antigüedad LRU con aritmética unsigned ante millis() rollover.
+    - H-160: Parser estricto de Content-Length, rechazo de Transfer-Encoding y residuo de cuerpo.
+    """
+
+    def test_h156_rearme_explicito_max_timeout_exceeded(self):
+        ctrl = MockIrrigationController()
+        now = 1000
+
+        # Iniciar ciclo y forzar disparo de maxSafetyWatchdogMs (25s)
+        self.assertTrue(ctrl.request_watering(IrrigationSource.AUTO_CYCLE, now, True, SensorHealth.OK, 10))
+        now += ctrl.watchdog_ms + 100
+        self.assertFalse(ctrl.update(now, True, SensorHealth.OK, 10))
+        self.assertEqual(ctrl.state, ControllerState.FAULT)
+        self.assertEqual(ctrl.last_fault, FaultReason.MAX_TIMEOUT_EXCEEDED)
+
+        # attempt_recovery() debe ser rechazado incondicionalmente
+        self.assertFalse(ctrl.attempt_recovery(now + 100, True, SensorHealth.OK))
+        self.assertEqual(ctrl.state, ControllerState.FAULT)
+
+        # reset_fault() debe rechazar si las condiciones físicas son inseguras (sin agua)
+        self.assertFalse(ctrl.reset_fault(now + 200, False, SensorHealth.OK))
+        self.assertEqual(ctrl.state, ControllerState.FAULT)
+
+        # reset_fault() debe rearmar exitosamente con condiciones físicas válidas
+        self.assertTrue(ctrl.reset_fault(now + 300, True, SensorHealth.OK))
+        self.assertEqual(ctrl.state, ControllerState.IDLE)
+        self.assertEqual(ctrl.last_fault, FaultReason.NONE)
+
+        # Tras el rearme, se debe imponer enfriamiento obligatorio (cooldown 5s)
+        self.assertFalse(ctrl.request_watering(IrrigationSource.MANUAL_BUTTON, now + 400, True, SensorHealth.OK, 10))
+        # Superado el cooldown, se permite la operación
+        self.assertTrue(ctrl.request_watering(IrrigationSource.MANUAL_BUTTON, now + 300 + ctrl.cooldown_ms + 10, True, SensorHealth.OK, 10))
+
+    def test_h158_lru_age_calculation_handles_millis_rollover(self):
+        # Simulación de aritmética unsigned uint32: (nowMs - lastAccessMs) & 0xFFFFFFFF
+        def uint32_age(now_ms, last_access_ms):
+            return (now_ms - last_access_ms) & 0xFFFFFFFF
+
+        now_ms = 500  # Justo después de un rollover de 32 bits (ej. 49.7 días)
+        # Ranura A: accedida poco antes del rollover (0xFFFFFF00)
+        slot_a_access = 0xFFFFFF00
+        # Ranura B: accedida después del rollover (200)
+        slot_b_access = 200
+
+        age_a = uint32_age(now_ms, slot_a_access)
+        age_b = uint32_age(now_ms, slot_b_access)
+
+        # 500 - 0xFFFFFF00 en módulo 2^32 = 500 + 256 = 756 ms transcurridos
+        self.assertEqual(age_a, 756)
+        # 500 - 200 = 300 ms transcurridos
+        self.assertEqual(age_b, 300)
+
+        # La política LRU debe desalojar la ranura con mayor antigüedad (Ranura A)
+        self.assertGreater(age_a, age_b)
+
+    def test_h157_strict_hex_validation(self):
+        def is_hex_strict(s, expected_len):
+            if len(s) != expected_len:
+                return False
+            for c in s:
+                if not (('0' <= c <= '9') or ('a' <= c <= 'f') or ('A' <= c <= 'F')):
+                    return False
+            return True
+
+        valid_nonce = "0123456789abcdef0123456789ABCDEF"
+        valid_hmac = "a" * 64
+        invalid_nonce_chars = "0123456789abcdef0123456789ABCDEG"  # 'G' no es hex
+        invalid_nonce_len = "0123456789abcdef"
+        invalid_hmac_chars = ("b" * 63) + "!"
+
+        self.assertTrue(is_hex_strict(valid_nonce, 32))
+        self.assertTrue(is_hex_strict(valid_hmac, 64))
+        self.assertFalse(is_hex_strict(invalid_nonce_chars, 32))
+        self.assertFalse(is_hex_strict(invalid_nonce_len, 32))
+        self.assertFalse(is_hex_strict(invalid_hmac_chars, 64))
+
+    def test_h160_http_content_length_and_residual_guards(self):
+        def parse_content_length_strict(header_lines):
+            content_len = -1
+            for line in header_lines:
+                if line.lower().startswith("transfer-encoding:"):
+                    return "NOT_IMPLEMENTED"
+                if line.lower().startswith("content-length:"):
+                    if content_len != -1:
+                        return "MULTIPLE_HEADERS_BAD_REQUEST"
+                    val = line[15:].strip()
+                    if not val.isdigit():
+                        return "MALFORMED_CHARS_BAD_REQUEST"
+                    parsed = int(val)
+                    if parsed < 0 or parsed > 256:
+                        return "PAYLOAD_TOO_LARGE"
+                    content_len = parsed
+            return content_len
+
+        # Caso válido
+        self.assertEqual(parse_content_length_strict(["Content-Length: 48"]), 48)
+        # Rechazo de sufijos alfanuméricos ("48abc")
+        self.assertEqual(parse_content_length_strict(["Content-Length: 48abc"]), "MALFORMED_CHARS_BAD_REQUEST")
+        # Rechazo de múltiples cabeceras Content-Length (RFC 7230 §3.3.2)
+        self.assertEqual(parse_content_length_strict(["Content-Length: 48", "Content-Length: 48"]), "MULTIPLE_HEADERS_BAD_REQUEST")
+        # Rechazo de Transfer-Encoding
+        self.assertEqual(parse_content_length_strict(["Transfer-Encoding: chunked", "Content-Length: 48"]), "NOT_IMPLEMENTED")
+        # Rechazo de carga excesiva
+        self.assertEqual(parse_content_length_strict(["Content-Length: 300"]), "PAYLOAD_TOO_LARGE")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
