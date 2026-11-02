@@ -1,33 +1,52 @@
 /**
  * ============================================================================
- * SMART FLORACARE - FIRMWARE ESP32 CON MONITOREO SEGURO Y CONTROL CENTRALIZADO
+ * SMART FLORACARE - FIRMWARE ARQUITECTÓNICO ESP32 v1.2.1 (V4.18 CONSOLIDADA)
  * ============================================================================
- * Placa: ESP32 DevKit V1 (Xtensa Dual-Core 3.3V)
+ * Plataforma: ESP32 DevKit V1 (30 pines, 3.3V lógica)
+ * Framework: Arduino ESP32 core v3.3.12 (ESP-IDF v5.5.5)
+ * 
+ * Normas de Seguridad y Diseño:
+ * - FSM desacoplada con corte bruto prioritario de boya de nivel (REQ-07, ACT-05).
+ * - Drivers pasivos seguros durante reset y boot (H-150).
+ * - Parser HTTP no bloqueante RFC 7230/9112 con transmisión chunked PROGMEM (H-151).
+ * - Autenticación HMAC-SHA256 (RFC 2104) con verificación de vector normativo al arranque.
+ * - Tabla de rate limiting con política de desalojo LRU y defensa por saturación (H-152).
+ * - Socket lwIP con O_NONBLOCK y MSG_DONTWAIT estricto (H-153).
  * ============================================================================
  */
 
-// Parámetros defensivos no bloqueantes para WebServer (mitiga H-04)
-#ifndef WEBSERVER_MAX_LINE_WAIT
-#define WEBSERVER_MAX_LINE_WAIT 500
-#endif
-#ifndef WEBSERVER_MAX_HEADER_WAIT
-#define WEBSERVER_MAX_HEADER_WAIT 1000
-#endif
-
-#include <stdint.h>
+#include <Arduino.h>
 #include <WiFi.h>
-#include <WebServer.h>
-#include <esp_task_wdt.h>
+#include <NetworkServer.h>
+#include <NetworkClient.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <esp_task_wdt.h>
+#include <esp_system.h>
+#include <esp_random.h>
+#include <mbedtls/md.h>
+#include <lwip/sockets.h>
+#include <fcntl.h>
 
-#include "SensorValidator.h"
 #include "IrrigationController.h"
+#include "SensorValidator.h"
+#include "HttpSecurityParser.h"
+#include "AutoInhibitTracker.h"
 
-using namespace FloraCare;
+using FloraCare::HttpParseResult;
+using FloraCare::parseHttpHeaderStrict;
+using FloraCare::isResidualBodyValid;
+using FloraCare::isHexStrict;
+using FloraCare::selectLruCandidate;
+using FloraCare::PARSE_OK;
+using FloraCare::PARSE_METHOD_NOT_ALLOWED;
+using FloraCare::PARSE_BAD_URI;
+using FloraCare::PARSE_BAD_REQUEST;
+using FloraCare::PARSE_PAYLOAD_TOO_LARGE;
+using FloraCare::PARSE_NOT_IMPLEMENTED;
 
-// --- GESTIÓN ESTRICTA DE CREDENCIALES (CERO HARDCODED DEFAULTS) ---
+// Inclusión de credenciales locales o respaldo seguro
 #if __has_include("Credentials.h")
   #include "Credentials.h"
   #define HAS_LOCAL_CREDENTIALS 1
@@ -51,106 +70,944 @@ using namespace FloraCare;
   static const char* API_AUTH_TOKEN = "";
 #endif
 
-static WebServer server(80);
-
-// --- PANTALLA OLED SSD1306 (128x64 I2C) ---
-static constexpr uint8_t SCREEN_WIDTH   = 128;
-static constexpr uint8_t SCREEN_HEIGHT  = 64;
-static constexpr int8_t  OLED_RESET     = -1;
-static constexpr uint8_t SCREEN_ADDRESS = 0x3C;
-static Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-
-// --- ASIGNACIÓN DE PINES (ESP32 HAL) ---
-static constexpr uint8_t PIN_SENSOR_HUMEDAD = 34; // ADC1_CH6 (Solo entrada)
-static constexpr uint8_t PIN_DRIVER_BOMBA   = 18; // Salida digital a Entrada Pre-Driver NPN+PNP
+// ============================================================================
+// CONSTANTES HARDWARE Y ASIGNACIÓN COHERENTE DE PINES (H-148)
+// ============================================================================
+static constexpr uint8_t PIN_SENSOR_HUMEDAD = 34; // ADC1_CH6 (Entrada analógica pura)
+static constexpr uint8_t PIN_DRIVER_BOMBA   = 18; // Salida digital a Pre-Driver NPN+PNP
 static constexpr uint8_t PIN_FLOTADOR_AGUA  = 19; // Entrada digital (INPUT_PULLUP)
 static constexpr uint8_t PIN_BUZZER         = 23; // Salida digital al zumbador
 static constexpr uint8_t PIN_BOTON_MANUAL   = 4;  // Entrada digital (INPUT_PULLUP)
 
-// --- PERFIL DE CALIBRACIÓN ADC ESP32 (12 BITS: 0 - 4095) ---
-static constexpr CalibrationProfile ESP32_CALIBRATION = {
-    3100, // airRaw (Seco total)
+// Dimensiones de la pantalla OLED I2C
+static constexpr uint8_t SCREEN_WIDTH  = 128;
+static constexpr uint8_t SCREEN_HEIGHT = 64;
+static constexpr int8_t  OLED_RESET    = -1;
+static Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+static bool oledAvailable = false;
+
+// ============================================================================
+// ESTRUCTURAS DE DOMINIO Y CONFIGURACIÓN CANÓNICA (H-147)
+// ============================================================================
+static constexpr FloraCare::CalibrationProfile ESP32_CALIBRATION = {
+    3100, // airRaw (Seco total en aire libre)
     1350, // waterRaw (Sumergido en agua)
-    100,  // minPhysLimit (Bajo 100 implica cortocircuito o masa)
-    4000, // maxPhysLimit (Sobre 4000 implica desconexión / flotante)
-    200   // minDelta requerido
+    100,  // minPhysLimit (Bajo 100 implica cortocircuito)
+    4000, // maxPhysLimit (Sobre 4000 implica desconexión)
+    200   // minDelta (Excursión mínima admisible)
 };
 
-// --- CONFIGURACIÓN DEL CONTROLADOR DE RIEGO ---
-static constexpr ControllerConfig IRRIGATION_CFG = {
+static constexpr FloraCare::ControllerConfig IRRIGATION_CFG = {
 #if defined(FLORACARE_BENCH_TEST_WATCHDOG_25S)
-    30000, // MODO ENSAYO AISLADO ACT-06.A2: Eleva límite auto para alcanzar el Watchdog de 25s
+    30000, // Modo ensayo aislado ACT-06.A2 (30 s para verificar disparo WDT a 25 s)
 #else
-    20000, // maxAutoDurationMs: 20 segundos
+    20000, // maxAutoDurationMs: 20 segundos máximo en riego automático
 #endif
-    3000,  // manualBurstDurationMs: 3 segundos
-    25000, // maxSafetyWatchdogMs: 25 segundos absoluto
-    5000,  // cooldownPeriodMs: 5 segundos de enfriamiento entre ciclos
+    3000,  // manualBurstDurationMs: 3 segundos por ráfaga
+    25000, // maxSafetyWatchdogMs: 25 segundos (Límite inmutable de seguridad)
+    5000,  // cooldownPeriodMs: 5 segundos de enfriamiento obligatorio
     25,    // autoStartMoisturePct: Iniciar si humedad <= 25%
     70     // autoStopMoisturePct: Detener si humedad >= 70%
 };
 
-static IrrigationController controller(IRRIGATION_CFG);
+static FloraCare::IrrigationController controller(IRRIGATION_CFG);
 
-// --- VARIABLES DE TELEMETRÍA Y TEMPORIZACIÓN NO BLOQUEANTE ---
-static uint32_t lastSampleTimeMs  = 0;
-static uint32_t lastDisplayTimeMs = 0;
-static uint32_t lastBeepTimeMs    = 0;
-static uint8_t  currentMoisturePct= 50;
-static SensorHealth sensorStatus  = SensorHealth::OK;
-static bool     waterLevelOk      = true;
-static bool     lastButtonState   = HIGH;
+// Variables de estado del sistema
+static uint32_t lastSampleTimeMs     = 0;
+static uint32_t lastDisplayTimeMs    = 0;
+static uint32_t lastBeepTimeMs       = 0;
+static uint8_t  currentMoisturePct   = 50;
+static FloraCare::SensorHealth sensorStatus = FloraCare::SensorHealth::OK;
+static bool     waterLevelOk         = true;
+static bool     lastButtonState      = HIGH;
 static uint32_t lastButtonDebounceMs = 0;
 
-// --- ESTADO DEL DISPLAY OLED ---
-static bool oledAvailable = false;
+// Interbloqueo preventivo de autorriego desatendido tras timeout (H-156)
+static FloraCare::AutoInhibitTracker s_autoInhibitTracker;
+static FloraCare::IrrigationSource   s_currentWateringSource = FloraCare::IrrigationSource::NONE;
+
+// Estado del pin físico comandado (H-150)
+static bool s_orderedPumpLevel = false;
 
 // ============================================================================
-// LECTURA FILTRADA DEL SENSOR ANALÓGICO (SOBREMUESTREO RÁPIDO NO BLOQUEANTE)
+// DEFINICIONES DE SEGURIDAD CRIPTOGRÁFICA Y RATE LIMITING (H-152)
 // ============================================================================
-static uint16_t sampleAnalogFast() {
-    uint32_t accum = 0;
-    static constexpr uint8_t SAMPLES = 16;
-    for (uint8_t i = 0; i < SAMPLES; ++i) {
-        accum += analogRead(PIN_SENSOR_HUMEDAD);
-        delayMicroseconds(200); // 16 * 200us = 3.2ms total (no bloquea el servidor)
+static constexpr size_t   CHALLENGE_POOL_SIZE       = 4;
+static constexpr size_t   AUTH_FAIL_CACHE_SIZE      = 8;
+static constexpr uint32_t NONCE_VALIDITY_WINDOW_MS  = 15000;
+static constexpr uint32_t PER_IP_NONCE_COOLDOWN_MS  = 500;
+static constexpr uint32_t AUTH_FAIL_COOLDOWN_MS     = 3000;
+static constexpr size_t   MAX_ACTIVE_PER_IP         = 2;
+
+struct ChallengeSlot {
+    uint8_t   nonce[16];
+    IPAddress clientIp;
+    uint32_t  issuedAtMs;
+    uint8_t   failedAttempts;
+    bool      valid;
+    bool      consumed;
+};
+
+struct IpRateLimitRecord {
+    IPAddress clientIp;
+    uint32_t  lastAccessMs;
+    uint32_t  lastNonceIssueMs;
+    uint32_t  lastAuthFailMs;
+    bool      hasIssuedNonce;
+    bool      hasAuthFailed;
+    bool      active;
+};
+
+static ChallengeSlot     s_challengePool[CHALLENGE_POOL_SIZE];
+static IpRateLimitRecord s_ipRateLimits[AUTH_FAIL_CACHE_SIZE];
+
+enum IssueResult {
+    ISSUE_OK,
+    ISSUE_POOL_EXHAUSTED,
+    ISSUE_IP_QUOTA_EXCEEDED,
+    ISSUE_IP_COOLDOWN,
+    ISSUE_INSECURE_TOKEN,
+    ISSUE_RATE_TABLE_FULL
+};
+
+// ============================================================================
+// COMUNICACIÓN HTTP NO BLOQUEANTE Y CONTROLADORES DE RUTA (H-151, H-153)
+// ============================================================================
+static NetworkServer s_httpServer(80);
+static NetworkClient s_client;
+
+enum HttpConnectionState {
+    HTTP_STATE_IDLE,
+    HTTP_STATE_READ_HEADERS,
+    HTTP_STATE_READ_BODY,
+    HTTP_STATE_SENDING_HEADERS,
+    HTTP_STATE_SENDING_BODY,
+    HTTP_STATE_CLOSE
+};
+
+static HttpConnectionState s_connState = HTTP_STATE_IDLE;
+static uint32_t s_connStartMs = 0;
+
+static char   s_rxHdrBuf[512];
+static size_t s_hdrLen = 0;
+static char   s_rxBodyBuf[257]; // 256 bytes de payload + 1 byte de terminador '\0'
+static size_t s_bodyLen = 0;
+static int    s_contentLen = -1;
+static char   s_uri[32];
+static bool   s_isGet = false;
+static bool   s_isPost = false;
+
+// Búferes de transmisión estructurada
+static char        s_txHdrBuf[256];
+static size_t      s_txHdrLen = 0;
+static size_t      s_txHdrSent = 0;
+static const char* s_txBodyPtr = nullptr;
+static size_t      s_txBodyLen = 0;
+static size_t      s_txBodySent = 0;
+static bool        s_isBodyProgmem = false;
+static char        s_txChunkBuf[256];
+
+// ============================================================================
+// INTERFAZ DE USUARIO WEB ALMACENADA EN FLASH (PROGMEM)
+// ============================================================================
+static const char HTML_PAGE[] PROGMEM = 
+"<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'>"
+"<meta name='viewport' content='width=device-width,initial-scale=1.0'>"
+"<title>FloraCare Pro</title><style>"
+"body{font-family:system-ui,sans-serif;background:#121212;color:#e0e0e0;margin:0;padding:20px;text-align:center}"
+".card{background:#1e1e1e;max-width:400px;margin:20px auto;padding:20px;border-radius:12px;box-shadow:0 4px 10px rgba(0,0,0,0.5)}"
+"h1{color:#4caf50;margin-top:0}.val{font-size:3rem;font-weight:bold;margin:10px 0}"
+"button{background:#4caf50;color:#fff;border:none;padding:12px 24px;font-size:1rem;border-radius:6px;cursor:pointer;width:100%}"
+"button:disabled{background:#555;cursor:not-allowed}"
+".status{margin-top:15px;font-size:0.9rem;color:#aaa}"
+"</style></head><body>"
+"<div class='card'>"
+"<h1>FloraCare Pro</h1>"
+"<div class='val' id='m'>--%</div>"
+"<div class='status' id='w'>Nivel: --</div>"
+"<div class='status' id='p'>Bomba: --</div><br>"
+"<button id='b' onclick='water()'>Regar 3s</button>"
+"<div class='status' id='msg'></div>"
+"</div>"
+"<script>"
+"async function update(){"
+" try{"
+"  let r=await fetch('/api/status');let d=await r.json();"
+"  document.getElementById('m').innerText=d.moisture+'%';"
+"  document.getElementById('w').innerText='Nivel: '+(d.waterLevel?'OK':'VACÍO');"
+"  document.getElementById('p').innerText='Bomba: '+(d.pumpActive?'REGANDO':'INACTIVA');"
+" }catch(e){}"
+"}"
+"async function water(){"
+" let btn=document.getElementById('b');btn.disabled=true;"
+" let msg=document.getElementById('msg');msg.innerText='Obteniendo desafío...';"
+" try{"
+"  let r=await fetch('/api/nonce');if(!r.ok) throw new Error('Error en nonce');"
+"  let d=await r.json();let n=d.nonce;"
+"  let key=prompt('Ingrese clave secreta HMAC (Hex 32 caracteres):');"
+"  if(!key){btn.disabled=false;msg.innerText='';return;}"
+"  let h=await computeHmac(key,n);"
+"  let wr=await fetch('/api/water',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nonce:n,hmac:h})});"
+"  let wd=await wr.json();"
+"  msg.innerText=wd.status==='ok'?'¡Riego activado!':('Error: '+wd.message);"
+" }catch(e){msg.innerText='Error: '+e.message;}"
+" setTimeout(()=>{btn.disabled=false;update();},3500);"
+"}"
+"async function computeHmac(kHex,msgHex){"
+" function toB(h){return new Uint8Array(h.match(/.{1,2}/g).map(byte=>parseInt(byte,16)));}"
+" let key=await crypto.subtle.importKey('raw',toB(kHex),{name:'HMAC',hash:'SHA-256'},false,['sign']);"
+" let sig=await crypto.subtle.sign('HMAC',key,toB(msgHex));"
+" return Array.from(new Uint8Array(sig)).map(b=>b.toString(16).padStart(2,'0')).join('');"
+"}"
+"setInterval(update,2000);update();"
+"</script></body></html>";
+
+// ============================================================================
+// CRIPTOGRAFÍA SEGURA Y AUTENTICACIÓN MUTUA (RFC 2104 / RFC 4231)
+// ============================================================================
+static bool isValidHexToken32(const char* token) {
+    if (!token || strlen(token) != 32) return false;
+    for (size_t i = 0; i < 32; ++i) {
+        char c = token[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+            return false;
+        }
     }
-    return static_cast<uint16_t>(accum / SAMPLES);
+    if (strcmp(token, "00000000000000000000000000000000") == 0) return false;
+    return true;
+}
+
+static bool safeConstantTimeEquals(const uint8_t* a, const uint8_t* b, size_t len) {
+    if (!a || !b) return false;
+    volatile uint8_t diff = 0;
+    for (size_t i = 0; i < len; ++i) {
+        diff |= (a[i] ^ b[i]);
+    }
+    return (diff == 0);
+}
+
+static bool computeHmacSha256(const uint8_t* key, size_t keyLen,
+                             const uint8_t* payload, size_t payloadLen,
+                             uint8_t outDigest[32]) {
+    mbedtls_md_context_t ctx;
+    mbedtls_md_init(&ctx);
+    const mbedtls_md_info_t* info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+    if (!info) {
+        mbedtls_md_free(&ctx);
+        return false;
+    }
+    if (mbedtls_md_hmac_starts(&ctx, key, keyLen) != 0) {
+        mbedtls_md_free(&ctx);
+        return false;
+    }
+    if (mbedtls_md_hmac_update(&ctx, payload, payloadLen) != 0) {
+        mbedtls_md_free(&ctx);
+        return false;
+    }
+    if (mbedtls_md_hmac_finish(&ctx, outDigest) != 0) {
+        mbedtls_md_free(&ctx);
+        return false;
+    }
+    mbedtls_md_free(&ctx);
+    return true;
+}
+
+/**
+ * Arnés de auto-verificación en arranque mediante Vector Normativo RFC 4231 (TC2).
+ * Clave: "Jefe" (4 bytes). Mensaje: "what do ya want for nothing?" (28 bytes).
+ * Digest esperado: 5bdcc146bf60754e6a042426089575e7fb1e6d50216a94ff7221a09e04023252
+ */
+static bool runCryptoSelfTest() {
+    static const uint8_t tcKey[] = "Jefe";
+    static const uint8_t tcMsg[] = "what do ya want for nothing?";
+    static const uint8_t expected[32] = {
+        0x5b, 0xdc, 0xc1, 0x46, 0xbf, 0x60, 0x75, 0x4e,
+        0x6a, 0x04, 0x24, 0x26, 0x08, 0x95, 0x75, 0xe7,
+        0xfb, 0x1e, 0x6d, 0x50, 0x21, 0x6a, 0x94, 0xff,
+        0x72, 0x21, 0xa0, 0x9e, 0x04, 0x02, 0x32, 0x52
+    };
+    uint8_t digest[32];
+    if (!computeHmacSha256(tcKey, 4, tcMsg, 28, digest)) return false;
+    return safeConstantTimeEquals(digest, expected, 32);
+}
+
+// Invalida inmediatamente todos los desafíos vigentes ante conmutación de bomba
+static void invalidateAllChallenges() {
+    for (size_t i = 0; i < CHALLENGE_POOL_SIZE; ++i) {
+        s_challengePool[i].valid = false;
+        s_challengePool[i].consumed = true;
+        s_challengePool[i].failedAttempts = 0;
+    }
+}
+
+// Salida exclusiva a la etapa de potencia física con guarda incondicional de firmware (H-155)
+static void applyPumpActuatorCommand(bool turnOn) {
+    // Guarda de firmware incondicional previa a excitación (H-155):
+    // Si la lectura directa de la boya indica falta de agua (HIGH), el microcontrolador niega el encendido.
+    // NOTA: Esta guarda es una mitigación lógica en firmware; la validación eléctrica independiente
+    // del corte físico en potencia permanece sujeta a los ensayos en banco ACT-05.
+    if (turnOn && (digitalRead(PIN_FLOTADOR_AGUA) == HIGH)) {
+        turnOn = false;
+    }
+
+    if (turnOn != s_orderedPumpLevel) {
+        s_orderedPumpLevel = turnOn;
+        digitalWrite(PIN_DRIVER_BOMBA, turnOn ? HIGH : LOW);
+        invalidateAllChallenges();
+    }
 }
 
 // ============================================================================
-// CAPA DE PRESENTACIÓN: RENDERIZADO OLED
+// GESTIÓN DE RETOS Y RATE LIMITING DETERMINISTA (H-152)
 // ============================================================================
-static void updateDisplay(const char* statusMsg) {
-    if (!oledAvailable) {
+static IpRateLimitRecord* getOrCreateRateLimit(const IPAddress& ip, uint32_t nowMs) {
+    for (size_t i = 0; i < AUTH_FAIL_CACHE_SIZE; ++i) {
+        if (s_ipRateLimits[i].active && s_ipRateLimits[i].clientIp == ip) {
+            s_ipRateLimits[i].lastAccessMs = nowMs;
+            return &s_ipRateLimits[i];
+        }
+    }
+    for (size_t i = 0; i < AUTH_FAIL_CACHE_SIZE; ++i) {
+        if (!s_ipRateLimits[i].active) {
+            s_ipRateLimits[i].clientIp = ip;
+            s_ipRateLimits[i].lastAccessMs = nowMs;
+            s_ipRateLimits[i].hasIssuedNonce = false;
+            s_ipRateLimits[i].hasAuthFailed = false;
+            s_ipRateLimits[i].lastNonceIssueMs = 0;
+            s_ipRateLimits[i].lastAuthFailMs = 0;
+            s_ipRateLimits[i].active = true;
+            return &s_ipRateLimits[i];
+        }
+    }
+    // Reciclaje de ranuras totalmente expiradas
+    for (size_t i = 0; i < AUTH_FAIL_CACHE_SIZE; ++i) {
+        const bool issueExpired = !s_ipRateLimits[i].hasIssuedNonce ||
+            (static_cast<uint32_t>(nowMs - s_ipRateLimits[i].lastNonceIssueMs) >= NONCE_VALIDITY_WINDOW_MS);
+        const bool failExpired = !s_ipRateLimits[i].hasAuthFailed ||
+            (static_cast<uint32_t>(nowMs - s_ipRateLimits[i].lastAuthFailMs) >= AUTH_FAIL_COOLDOWN_MS);
+
+        if (issueExpired && failExpired) {
+            s_ipRateLimits[i].clientIp = ip;
+            s_ipRateLimits[i].lastAccessMs = nowMs;
+            s_ipRateLimits[i].hasIssuedNonce = false;
+            s_ipRateLimits[i].hasAuthFailed = false;
+            s_ipRateLimits[i].lastNonceIssueMs = 0;
+            s_ipRateLimits[i].lastAuthFailMs = 0;
+            s_ipRateLimits[i].active = true;
+            return &s_ipRateLimits[i];
+        }
+    }
+    // Desalojo LRU genuino y robusto ante desbordamiento (rollover) de millis() (H-158)
+    uint32_t lastAccessList[AUTH_FAIL_CACHE_SIZE];
+    bool underPenaltyList[AUTH_FAIL_CACHE_SIZE];
+    for (size_t i = 0; i < AUTH_FAIL_CACHE_SIZE; ++i) {
+        lastAccessList[i] = s_ipRateLimits[i].lastAccessMs;
+        underPenaltyList[i] = s_ipRateLimits[i].hasAuthFailed &&
+            (static_cast<uint32_t>(nowMs - s_ipRateLimits[i].lastAuthFailMs) < AUTH_FAIL_COOLDOWN_MS);
+    }
+    const int bestLru = selectLruCandidate(lastAccessList, underPenaltyList, AUTH_FAIL_CACHE_SIZE, nowMs);
+
+    if (bestLru >= 0) {
+        s_ipRateLimits[bestLru].clientIp = ip;
+        s_ipRateLimits[bestLru].lastAccessMs = nowMs;
+        s_ipRateLimits[bestLru].hasIssuedNonce = false;
+        s_ipRateLimits[bestLru].hasAuthFailed = false;
+        s_ipRateLimits[bestLru].lastNonceIssueMs = 0;
+        s_ipRateLimits[bestLru].lastAuthFailMs = 0;
+        s_ipRateLimits[bestLru].active = true;
+        return &s_ipRateLimits[bestLru];
+    }
+
+    return nullptr; // Saturación total de la tabla bajo ataque DoS masivo
+}
+
+static bool isIpAuthCoolingDown(const IPAddress& ip, uint32_t nowMs) {
+    for (size_t i = 0; i < AUTH_FAIL_CACHE_SIZE; ++i) {
+        if (s_ipRateLimits[i].active && s_ipRateLimits[i].clientIp == ip) {
+            s_ipRateLimits[i].lastAccessMs = nowMs;
+            if (s_ipRateLimits[i].hasAuthFailed &&
+                static_cast<uint32_t>(nowMs - s_ipRateLimits[i].lastAuthFailMs) < AUTH_FAIL_COOLDOWN_MS) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static void recordAuthFailure(const IPAddress& ip, uint32_t nowMs) {
+    IpRateLimitRecord* rec = getOrCreateRateLimit(ip, nowMs);
+    if (rec) {
+        rec->hasAuthFailed = true;
+        rec->lastAuthFailMs = nowMs;
+    }
+}
+
+static IssueResult issueNewChallenge(const IPAddress& clientIp, uint8_t outNonce[16], uint32_t nowMs) {
+    if (!isValidHexToken32(API_AUTH_TOKEN)) return ISSUE_INSECURE_TOKEN;
+
+    IpRateLimitRecord* rateRec = getOrCreateRateLimit(clientIp, nowMs);
+    if (!rateRec) return ISSUE_RATE_TABLE_FULL;
+
+    if (rateRec->hasIssuedNonce &&
+        static_cast<uint32_t>(nowMs - rateRec->lastNonceIssueMs) < PER_IP_NONCE_COOLDOWN_MS) {
+        return ISSUE_IP_COOLDOWN;
+    }
+
+    size_t activeCountForIp = 0;
+    for (size_t i = 0; i < CHALLENGE_POOL_SIZE; ++i) {
+        if (s_challengePool[i].valid && !s_challengePool[i].consumed &&
+            s_challengePool[i].clientIp == clientIp) {
+            if (static_cast<uint32_t>(nowMs - s_challengePool[i].issuedAtMs) < NONCE_VALIDITY_WINDOW_MS) {
+                activeCountForIp++;
+            }
+        }
+    }
+    if (activeCountForIp >= MAX_ACTIVE_PER_IP) return ISSUE_IP_QUOTA_EXCEEDED;
+
+    int candidateIdx = -1;
+    for (size_t i = 0; i < CHALLENGE_POOL_SIZE; ++i) {
+        if (!s_challengePool[i].valid || s_challengePool[i].consumed ||
+            static_cast<uint32_t>(nowMs - s_challengePool[i].issuedAtMs) >= NONCE_VALIDITY_WINDOW_MS) {
+            candidateIdx = static_cast<int>(i);
+            break;
+        }
+    }
+    if (candidateIdx < 0) return ISSUE_POOL_EXHAUSTED;
+
+    esp_fill_random(s_challengePool[candidateIdx].nonce, 16);
+    s_challengePool[candidateIdx].clientIp = clientIp;
+    s_challengePool[candidateIdx].issuedAtMs = nowMs;
+    s_challengePool[candidateIdx].valid = true;
+    s_challengePool[candidateIdx].consumed = false;
+
+    memcpy(outNonce, s_challengePool[candidateIdx].nonce, 16);
+    rateRec->hasIssuedNonce = true;
+    rateRec->lastNonceIssueMs = nowMs;
+    return ISSUE_OK;
+}
+
+// ============================================================================
+// PARSER HTTP ESTRICTO Y MOTOR DE RESPUESTA (RFC 7230/9112)
+// ============================================================================
+static const char* getHttpStatusPhrase(int code) {
+    switch (code) {
+        case 200: return "OK";
+        case 400: return "Bad Request";
+        case 403: return "Forbidden";
+        case 404: return "Not Found";
+        case 405: return "Method Not Allowed";
+        case 409: return "Conflict";
+        case 411: return "Length Required";
+        case 413: return "Payload Too Large";
+        case 429: return "Too Many Requests";
+        case 500: return "Internal Server Error";
+        case 501: return "Not Implemented";
+        case 503: return "Service Unavailable";
+        default:  return "Unknown";
+    }
+}
+
+static void queueResponse(int code, const char* contentType, const char* body,
+                          bool isProgmem = false, const char* extraHeaders = nullptr) {
+    s_isBodyProgmem = isProgmem;
+    s_txBodyPtr = body;
+    s_txBodyLen = isProgmem ? strlen_P(body) : strlen(body);
+    s_txBodySent = 0;
+
+    if (extraHeaders) {
+        s_txHdrLen = snprintf(s_txHdrBuf, sizeof(s_txHdrBuf),
+                              "HTTP/1.1 %d %s\r\n"
+                              "Content-Type: %s\r\n"
+                              "Content-Length: %u\r\n"
+                              "%s\r\n"
+                              "Connection: close\r\n\r\n",
+                              code, getHttpStatusPhrase(code), contentType,
+                              static_cast<unsigned int>(s_txBodyLen), extraHeaders);
+    } else {
+        s_txHdrLen = snprintf(s_txHdrBuf, sizeof(s_txHdrBuf),
+                              "HTTP/1.1 %d %s\r\n"
+                              "Content-Type: %s\r\n"
+                              "Content-Length: %u\r\n"
+                              "Connection: close\r\n\r\n",
+                              code, getHttpStatusPhrase(code), contentType,
+                              static_cast<unsigned int>(s_txBodyLen));
+    }
+    s_txHdrSent = 0;
+    s_connState = HTTP_STATE_SENDING_HEADERS;
+}
+
+static void resetHttpState() {
+    s_connState = HTTP_STATE_IDLE;
+    s_hdrLen = 0;
+    s_bodyLen = 0;
+    s_contentLen = -1;
+    s_uri[0] = '\0';
+    s_isGet = false;
+    s_isPost = false;
+    s_txHdrLen = 0;
+    s_txHdrSent = 0;
+    s_txBodyLen = 0;
+    s_txBodySent = 0;
+    s_txBodyPtr = nullptr;
+    s_isBodyProgmem = false;
+}
+
+// ============================================================================
+// ENDPOINTS DE LA API REST
+// ============================================================================
+static void serveApiStatus() {
+    char json[128];
+    snprintf(json, sizeof(json),
+             "{\"moisture\":%u,\"waterLevel\":%s,\"pumpActive\":%s,\"sensorOk\":%s}",
+             currentMoisturePct,
+             waterLevelOk ? "true" : "false",
+             controller.isPumpActive() ? "true" : "false",
+             (sensorStatus == FloraCare::SensorHealth::OK) ? "true" : "false");
+    queueResponse(200, "application/json", json);
+}
+
+static void serveApiNonce() {
+    if (!isValidHexToken32(API_AUTH_TOKEN)) {
+        queueResponse(403, "application/json",
+            "{\"status\":\"error\",\"message\":\"Remote watering disabled: unconfigured auth token\"}");
         return;
     }
-    display.clearDisplay();
 
+    const IPAddress clientIp = s_client.remoteIP();
+    const uint32_t nowMs = millis();
+
+    if (isIpAuthCoolingDown(clientIp, nowMs)) {
+        queueResponse(429, "application/json",
+            "{\"status\":\"error\",\"message\":\"Rate limited: cooldown active\"}",
+            false, "Retry-After: 3");
+        return;
+    }
+
+    uint8_t nonce[16];
+    const IssueResult res = issueNewChallenge(clientIp, nonce, nowMs);
+
+    switch (res) {
+        case ISSUE_OK: {
+            char nonceHex[33] = {0};
+            for (size_t i = 0; i < 16; ++i) sprintf(nonceHex + (i * 2), "%02x", nonce[i]);
+            char resp[96];
+            snprintf(resp, sizeof(resp), "{\"status\":\"ok\",\"nonce\":\"%s\"}", nonceHex);
+            queueResponse(200, "application/json", resp);
+            break;
+        }
+        case ISSUE_IP_COOLDOWN:
+            queueResponse(429, "application/json",
+                "{\"status\":\"error\",\"message\":\"Nonce cooldown active (500ms)\"}",
+                false, "Retry-After: 1");
+            break;
+        case ISSUE_IP_QUOTA_EXCEEDED:
+            queueResponse(429, "application/json",
+                "{\"status\":\"error\",\"message\":\"Max active nonces reached for IP\"}",
+                false, "Retry-After: 5");
+            break;
+        case ISSUE_POOL_EXHAUSTED:
+        case ISSUE_RATE_TABLE_FULL:
+            queueResponse(429, "application/json",
+                "{\"status\":\"error\",\"message\":\"Challenge pool or rate table saturated\"}",
+                false, "Retry-After: 3");
+            break;
+        case ISSUE_INSECURE_TOKEN:
+            queueResponse(403, "application/json",
+                "{\"status\":\"error\",\"message\":\"Invalid server token\"}");
+            break;
+    }
+}
+
+static void serveApiWater(const char* body, size_t bodyLen,
+                          bool currentWaterOk, FloraCare::SensorHealth currentSensorStatus,
+                          uint8_t currentMoisture) {
+    const IPAddress clientIp = s_client.remoteIP();
+    const uint32_t nowMs = millis();
+
+    if (isIpAuthCoolingDown(clientIp, nowMs)) {
+        queueResponse(429, "application/json",
+            "{\"status\":\"error\",\"message\":\"Auth failure cooldown active\"}",
+            false, "Retry-After: 3");
+        return;
+    }
+
+    // Parser JSON estrictamente acotado por bodyLen (H-160)
+    const char* const bodyEnd = body + bodyLen;
+    const char* nonceKey = "\"nonce\":\"";
+    const char* hmacKey  = "\"hmac\":\"";
+    const char* pNonce = FloraCare::findSubstringBounded(body, bodyEnd, nonceKey, 9);
+    const char* pHmac  = FloraCare::findSubstringBounded(body, bodyEnd, hmacKey, 8);
+
+    if (!pNonce || !pHmac) {
+        recordAuthFailure(clientIp, nowMs);
+        queueResponse(400, "application/json", "{\"status\":\"error\",\"message\":\"Malformed JSON payload\"}");
+        return;
+    }
+
+    pNonce += 9;
+    pHmac  += 8;
+    const char* nonceEnd = FloraCare::findCharBounded(pNonce, bodyEnd, '\"');
+    const char* hmacEnd  = FloraCare::findCharBounded(pHmac, bodyEnd, '\"');
+
+    if (!nonceEnd || !hmacEnd || (nonceEnd - pNonce != 32) || (hmacEnd - pHmac != 64)) {
+        recordAuthFailure(clientIp, nowMs);
+        queueResponse(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid field lengths\"}");
+        return;
+    }
+
+    // Validación sintáctica estricta de caracteres hexadecimales antes de conversión (H-157)
+    if (!isHexStrict(pNonce, 32) || !isHexStrict(pHmac, 64)) {
+        recordAuthFailure(clientIp, nowMs);
+        queueResponse(400, "application/json", "{\"status\":\"error\",\"message\":\"Non-hexadecimal characters in security fields\"}");
+        return;
+    }
+
+    uint8_t reqNonce[16];
+    for (size_t i = 0; i < 16; ++i) {
+        char byteStr[3] = { pNonce[i*2], pNonce[i*2+1], '\0' };
+        reqNonce[i] = static_cast<uint8_t>(strtoul(byteStr, nullptr, 16));
+    }
+
+    int slotIdx = -1;
+    for (size_t i = 0; i < CHALLENGE_POOL_SIZE; ++i) {
+        if (s_challengePool[i].valid && !s_challengePool[i].consumed &&
+            s_challengePool[i].clientIp == clientIp) {
+            if (safeConstantTimeEquals(s_challengePool[i].nonce, reqNonce, 16)) {
+                if (static_cast<uint32_t>(nowMs - s_challengePool[i].issuedAtMs) < NONCE_VALIDITY_WINDOW_MS) {
+                    slotIdx = static_cast<int>(i);
+                }
+                break;
+            }
+        }
+    }
+
+    if (slotIdx < 0) {
+        recordAuthFailure(clientIp, nowMs);
+        queueResponse(403, "application/json", "{\"status\":\"error\",\"message\":\"Invalid or expired challenge\"}");
+        return;
+    }
+
+    // Conversión de clave secreta
+    uint8_t binaryKey[16];
+    for (size_t i = 0; i < 16; ++i) {
+        char byteStr[3] = { API_AUTH_TOKEN[i*2], API_AUTH_TOKEN[i*2+1], '\0' };
+        binaryKey[i] = static_cast<uint8_t>(strtoul(byteStr, nullptr, 16));
+    }
+
+    uint8_t expectedHmac[32];
+    if (!computeHmacSha256(binaryKey, 16, reqNonce, 16, expectedHmac)) {
+        queueResponse(500, "application/json", "{\"status\":\"error\",\"message\":\"Crypto engine fault\"}");
+        return;
+    }
+
+    uint8_t receivedHmac[32];
+    for (size_t i = 0; i < 32; ++i) {
+        char byteStr[3] = { pHmac[i*2], pHmac[i*2+1], '\0' };
+        receivedHmac[i] = static_cast<uint8_t>(strtoul(byteStr, nullptr, 16));
+    }
+
+    if (!safeConstantTimeEquals(expectedHmac, receivedHmac, 32)) {
+        s_challengePool[slotIdx].failedAttempts++;
+        if (s_challengePool[slotIdx].failedAttempts >= 2) {
+            s_challengePool[slotIdx].consumed = true;
+            s_challengePool[slotIdx].valid = false;
+        }
+        recordAuthFailure(clientIp, nowMs);
+        queueResponse(403, "application/json", "{\"status\":\"error\",\"message\":\"HMAC signature mismatch\"}");
+        return;
+    }
+
+    // HMAC verificado con éxito: consumo atómico e irreversible del desafío (H-157)
+    s_challengePool[slotIdx].consumed = true;
+    s_challengePool[slotIdx].valid = false;
+
+    // Solicitud a la FSM centralizada
+    const bool accepted = controller.requestWatering(
+        FloraCare::IrrigationSource::REMOTE_WEB,
+        nowMs,
+        currentWaterOk,
+        currentSensorStatus,
+        currentMoisture
+    );
+
+    if (accepted) {
+        s_currentWateringSource = FloraCare::IrrigationSource::REMOTE_WEB;
+        queueResponse(200, "application/json", "{\"status\":\"ok\",\"message\":\"Remote watering activated (3s)\"}");
+    } else {
+        queueResponse(409, "application/json", "{\"status\":\"error\",\"message\":\"Watering rejected by safety FSM\"}");
+    }
+}
+
+// ============================================================================
+// SERVIDOR HTTP COOPERATIVO CON DEADLINE ESTRICTO DE 150 MS (H-151, H-153)
+// ============================================================================
+static void pollHttpServer(bool currentWaterOk, FloraCare::SensorHealth currentSensorStatus, uint8_t currentMoisture) {
+    const uint32_t nowMs = millis();
+
+    // Verificación de timeout global de la transacción
+    if (s_connState != HTTP_STATE_IDLE) {
+        if (static_cast<uint32_t>(nowMs - s_connStartMs) >= 150) {
+            s_client.stop();
+            resetHttpState();
+            return;
+        }
+    }
+
+    switch (s_connState) {
+        case HTTP_STATE_IDLE: {
+            // NetworkServer::begin() configura O_NONBLOCK en el socket de escucha (NetworkServer.cpp:127).
+            // hasClient() y accept() operan en modo no bloqueante sin retener la CPU.
+            if (s_httpServer.hasClient()) {
+                s_client = s_httpServer.accept();
+                if (s_client) {
+                    const int fd = s_client.fd();
+                    if (fd >= 0) {
+                        const int flags = fcntl(fd, F_GETFL, 0);
+                        if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+                            s_client.stop();
+                            return;
+                        }
+                    }
+                    s_connStartMs = nowMs;
+                    s_hdrLen = 0;
+                    s_bodyLen = 0;
+                    s_contentLen = -1;
+                    s_connState = HTTP_STATE_READ_HEADERS;
+                }
+            }
+            break;
+        }
+
+        case HTTP_STATE_READ_HEADERS: {
+            if (!s_client.connected()) {
+                s_client.stop();
+                resetHttpState();
+                return;
+            }
+
+            int avail = s_client.available();
+            if (avail > 0) {
+                size_t toRead = static_cast<size_t>(avail);
+                if (toRead > 256) toRead = 256; // Rodaja acotada para no demorar el lazo de control (H-160)
+                if (s_hdrLen + toRead >= sizeof(s_rxHdrBuf)) {
+                    queueResponse(413, "application/json", "{\"status\":\"error\",\"message\":\"Headers Too Large\"}");
+                    return;
+                }
+
+                int n = s_client.read(reinterpret_cast<uint8_t*>(s_rxHdrBuf + s_hdrLen), toRead);
+                if (n > 0) {
+                    s_hdrLen += n;
+                    s_rxHdrBuf[s_hdrLen] = '\0';
+                }
+
+                const char* hdrEnd = FloraCare::findHeaderEndBounded(s_rxHdrBuf, s_rxHdrBuf + s_hdrLen);
+                if (hdrEnd) {
+                    const HttpParseResult res = parseHttpHeaderStrict(
+                        s_rxHdrBuf, s_hdrLen, s_uri, sizeof(s_uri), s_isGet, s_isPost, s_contentLen
+                    );
+
+                    switch (res) {
+                        case PARSE_OK:
+                            break;
+                        case PARSE_METHOD_NOT_ALLOWED:
+                            queueResponse(405, "application/json", "{\"status\":\"error\",\"message\":\"Method Not Allowed\"}");
+                            return;
+                        case PARSE_BAD_URI:
+                        case PARSE_BAD_REQUEST:
+                            queueResponse(400, "application/json", "{\"status\":\"error\",\"message\":\"Bad Request\"}");
+                            return;
+                        case PARSE_PAYLOAD_TOO_LARGE:
+                            queueResponse(413, "application/json", "{\"status\":\"error\",\"message\":\"Payload Too Large\"}");
+                            return;
+                        case PARSE_NOT_IMPLEMENTED:
+                            queueResponse(501, "application/json", "{\"status\":\"error\",\"message\":\"Not Implemented (Transfer-Encoding not supported)\"}");
+                            return;
+                    }
+
+                    if (s_isGet) {
+                        if (strcmp(s_uri, "/") == 0) {
+                            queueResponse(200, "text/html", HTML_PAGE, true);
+                        } else if (strcmp(s_uri, "/api/status") == 0) {
+                            serveApiStatus();
+                        } else if (strcmp(s_uri, "/api/nonce") == 0) {
+                            serveApiNonce();
+                        } else {
+                            queueResponse(404, "application/json", "{\"status\":\"error\",\"message\":\"Not Found\"}");
+                        }
+                    } else if (s_isPost) {
+                        if (strcmp(s_uri, "/api/water") != 0) {
+                            queueResponse(404, "application/json", "{\"status\":\"error\",\"message\":\"Endpoint Not Found\"}");
+                            return;
+                        }
+                        if (s_contentLen <= 0) {
+                            queueResponse(411, "application/json", "{\"status\":\"error\",\"message\":\"Length Required\"}");
+                            return;
+                        }
+
+                        // Preservar bytes residuales del cuerpo recibidos junto con la cabecera
+                        const char* bodyStart = hdrEnd + 4;
+                        size_t residual = (s_rxHdrBuf + s_hdrLen) - bodyStart;
+                        s_bodyLen = 0;
+                        if (residual > 0) {
+                            if (!isResidualBodyValid(residual, s_contentLen)) {
+                                queueResponse(400, "application/json", "{\"status\":\"error\",\"message\":\"Residual body exceeds Content-Length\"}");
+                                return;
+                            }
+                            if (residual > sizeof(s_rxBodyBuf) - 1) residual = sizeof(s_rxBodyBuf) - 1;
+                            memcpy(s_rxBodyBuf, bodyStart, residual);
+                            s_bodyLen = residual;
+                            s_rxBodyBuf[s_bodyLen] = '\0';
+                        }
+
+                        if (s_bodyLen == static_cast<size_t>(s_contentLen)) {
+                            serveApiWater(s_rxBodyBuf, s_bodyLen, currentWaterOk, currentSensorStatus, currentMoisture);
+                            return;
+                        }
+                        s_connState = HTTP_STATE_READ_BODY;
+                    }
+                }
+            }
+            break;
+        }
+
+        case HTTP_STATE_READ_BODY: {
+            if (!s_client.connected()) {
+                s_client.stop();
+                resetHttpState();
+                return;
+            }
+
+            int avail = s_client.available();
+            if (avail > 0) {
+                size_t needed = static_cast<size_t>(s_contentLen) - s_bodyLen;
+                size_t toRead = (static_cast<size_t>(avail) < needed) ? static_cast<size_t>(avail) : needed;
+                if (toRead > 256) toRead = 256; // Rodaja acotada para no demorar el lazo de control (H-160)
+
+                if (s_bodyLen + toRead >= sizeof(s_rxBodyBuf)) {
+                    queueResponse(413, "application/json", "{\"status\":\"error\",\"message\":\"Body Too Large\"}");
+                    return;
+                }
+
+                int n = s_client.read(reinterpret_cast<uint8_t*>(s_rxBodyBuf + s_bodyLen), toRead);
+                if (n > 0) {
+                    s_bodyLen += n;
+                    s_rxBodyBuf[s_bodyLen] = '\0';
+                }
+
+                if (s_bodyLen == static_cast<size_t>(s_contentLen)) {
+                    serveApiWater(s_rxBodyBuf, s_bodyLen, currentWaterOk, currentSensorStatus, currentMoisture);
+                }
+            }
+            break;
+        }
+
+        case HTTP_STATE_SENDING_HEADERS: {
+            if (s_txHdrSent < s_txHdrLen) {
+                size_t chunk = s_txHdrLen - s_txHdrSent;
+                if (chunk > 256) chunk = 256;
+                ssize_t sent = lwip_send(s_client.fd(), s_txHdrBuf + s_txHdrSent, chunk, MSG_DONTWAIT);
+                if (sent > 0) {
+                    s_txHdrSent += sent;
+                } else if (sent < 0 && (errno != EWOULDBLOCK && errno != EAGAIN)) {
+                    s_client.stop();
+                    resetHttpState();
+                    return;
+                }
+            }
+
+            if (s_txHdrSent >= s_txHdrLen) {
+                if (s_txBodyLen == 0) {
+                    s_connState = HTTP_STATE_CLOSE;
+                } else {
+                    s_connState = HTTP_STATE_SENDING_BODY;
+                }
+            }
+            break;
+        }
+
+        case HTTP_STATE_SENDING_BODY: {
+            if (s_txBodySent < s_txBodyLen) {
+                size_t chunk = s_txBodyLen - s_txBodySent;
+                if (chunk > sizeof(s_txChunkBuf)) chunk = sizeof(s_txChunkBuf);
+
+                const char* sendPtr = nullptr;
+                if (s_isBodyProgmem) {
+                    memcpy_P(s_txChunkBuf, s_txBodyPtr + s_txBodySent, chunk);
+                    sendPtr = s_txChunkBuf;
+                } else {
+                    sendPtr = s_txBodyPtr + s_txBodySent;
+                }
+
+                ssize_t sent = lwip_send(s_client.fd(), sendPtr, chunk, MSG_DONTWAIT);
+                if (sent > 0) {
+                    s_txBodySent += sent;
+                } else if (sent < 0 && (errno != EWOULDBLOCK && errno != EAGAIN)) {
+                    s_client.stop();
+                    resetHttpState();
+                    return;
+                }
+            }
+
+            if (s_txBodySent >= s_txBodyLen) {
+                s_connState = HTTP_STATE_CLOSE;
+            }
+            break;
+        }
+
+        case HTTP_STATE_CLOSE: {
+            s_client.stop();
+            resetHttpState();
+            break;
+        }
+    }
+}
+
+// ============================================================================
+// FUNCIONES AUXILIARES DE SENSOR, DISPLAY Y AUDITORÍA
+// ============================================================================
+static uint16_t sampleAnalogFast() {
+    // Lectura directa no bloqueante sin retardos síncronos (H-159):
+    // Conversión inmediata de disparo único con filtro exponencial paso bajo IIR en punto fijo:
+    // y[n] = (3 * y[n-1] + x[n]) / 4 (constante de tiempo exacta tau = -Ts / ln(0.75) aprox. 348 ms
+    // con Ts = 100 ms; frecuencia de corte aprox. 0.46 Hz).
+    // NOTA: La latencia real de conversión del SAR ADC (~10 us nominal) y la dinámica temporal del filtro
+    // son un modelo de diseño de firmware sujeto a caracterización oscilográfica en banco (ACT-05).
+    static uint16_t s_filteredAdc = 0;
+    static bool s_initialized = false;
+    const uint16_t raw = static_cast<uint16_t>(analogRead(PIN_SENSOR_HUMEDAD));
+    if (!s_initialized) {
+        s_filteredAdc = raw;
+        s_initialized = true;
+    } else {
+        s_filteredAdc = static_cast<uint16_t>(((static_cast<uint32_t>(s_filteredAdc) * 3) + raw) / 4);
+    }
+    return s_filteredAdc;
+}
+
+static void updateDisplay(const char* statusMsg) {
+    if (!oledAvailable) return;
+    display.clearDisplay();
     display.setTextSize(1);
     display.setTextColor(SSD1306_WHITE);
     display.setCursor(0, 0);
     display.print(F("FLORACARE PRO (ESP32)"));
     display.drawLine(0, 10, 128, 10, SSD1306_WHITE);
 
-    // Humedad
     display.setTextSize(3);
     display.setCursor(6, 16);
-    if (sensorStatus == SensorHealth::OK) {
+    if (sensorStatus == FloraCare::SensorHealth::OK) {
         display.print(currentMoisturePct);
         display.print(F("%"));
     } else {
         display.print(F("ERR"));
     }
 
-    // Nivel de agua
     display.setTextSize(1);
     display.setCursor(80, 20);
     display.print(waterLevelOk ? F("[AGUA OK]") : F("[VACIO!]"));
 
-    // Barra de progreso
     display.drawRect(0, 44, 128, 6, SSD1306_WHITE);
-    if (sensorStatus == SensorHealth::OK) {
+    if (sensorStatus == FloraCare::SensorHealth::OK) {
         uint8_t bar = static_cast<uint8_t>(map(currentMoisturePct, 0, 100, 0, 128));
         display.fillRect(0, 44, bar, 6, SSD1306_WHITE);
     }
@@ -158,602 +1015,251 @@ static void updateDisplay(const char* statusMsg) {
     display.setCursor(0, 54);
     display.print(F("ESTADO: "));
     display.print(statusMsg);
-
     display.display();
 }
 
 // ============================================================================
-// SERVIDOR WEB Y API REST PROTEGIDA CON AUTENTICACIÓN SEGURA Y DEFENSIVA
-// ============================================================================
-
-// --- LÍMITES Y POLÍTICA DE SEGURIDAD PARA AUTENTICACIÓN ---
-static constexpr size_t MIN_TOKEN_LEN = 16;
-static constexpr size_t MAX_TOKEN_LEN = 128;
-
-/**
- * Valida si el token configurado en firmware es nulo, menor a 16 caracteres
- * o corresponde a un marcador de posición de ejemplo conocido.
- */
-static bool isDefaultOrInsecureToken(const char* token) {
-    if (!token) {
-        return true;
-    }
-    const size_t len = strlen(token);
-    if (len < MIN_TOKEN_LEN) {
-        return true;
-    }
-    if (strcmp(token, "GENERA_UN_TOKEN_SECRETO_DE_16_O_MAS_CARACTERES") == 0) {
-        return true;
-    }
-    if (strcmp(token, "CAMBIA_ESTE_TOKEN_SECRETO_12345") == 0) {
-        return true;
-    }
-
-    if (strcmp(token, "1234567890123456") == 0) {
-        return true;
-    }
-    return false;
-}
-
-/**
- * Comparación segura en tiempo constante para mitigar ataques de temporización (timing attacks).
- * Recorre siempre las posiciones requeridas sin salidas tempranas basadas en valor de caracteres.
- */
-static bool safeConstantTimeEquals(const char* a, const char* b, size_t maxLen = MAX_TOKEN_LEN) {
-    if (!a || !b) {
-        return false;
-    }
-    const size_t lenA = strlen(a);
-    const size_t lenB = strlen(b);
-    if (lenA > maxLen || lenB > maxLen) {
-        return false;
-    }
-
-    volatile uint8_t diff = static_cast<uint8_t>(lenA ^ lenB);
-    const size_t maxIter = (lenA > lenB) ? lenA : lenB;
-    for (size_t i = 0; i < maxIter; ++i) {
-        const uint8_t ca = (i < lenA) ? static_cast<uint8_t>(a[i]) : 0;
-        const uint8_t cb = (i < lenB) ? static_cast<uint8_t>(b[i]) : 0;
-        diff |= (ca ^ cb);
-    }
-    return (diff == 0);
-}
-
-/**
- * Valida el origen de la solicitud para mitigar ataques CSRF desde navegadores (RFC 6454).
- * Un origen web se compone de la tupla (esquema, host, puerto).
- * Política de seguridad estricta para Smart FloraCare en entorno local IPv4:
- *  - Si no existe cabecera "Origin" ni "Referer", se permite el acceso exclusivamente a
- *    clientes programáticos (cURL, scripts Python, Home Assistant) debido a que la API
- *    exige un token secreto en cada petición y el firmware NO utiliza cookies ni sesiones.
- *  - Si la cabecera está presente pero vacía o contiene solo espacios, SE RECHAZA.
- *  - Esquema obligatorio: estrictamente "http://" (se rechaza "https://", "null", etc.).
- *  - No se permiten credenciales en la autoridad (ej. usuario@host) ni caracteres inválidos.
- *  - IPv6 se rechaza explícitamente (el sistema opera exclusivamente sobre red local IPv4).
- *  - Puerto efectivo: debe ser estrictamente 80 o implícito. Se rechazan puertos dispares,
- *    no canónicos (ej. ":080", ":+80"), vacíos (ej. ":") o no numéricos (ej. ":80a").
- *  - Host permitido: debe coincidir exactamente con la dirección IPv4 local asignada
- *    al dispositivo (WiFi.localIP()). No se admiten nombres mDNS no configurados ni
- *    se refleja el encabezado Host del cliente.
- *  - Si se reciben simultáneamente Origin y Referer, AMBOS deben ser válidos y coincidir
- *    con la autoridad local autorizada (sin contradicciones).
- */
-static bool validateSingleAuthority(String target, bool isOriginHeader) {
-    target.trim();
-    if (target.length() < 8) {
-        return false;
-    }
-
-    // 1. Esquema obligatorio http:// (H-01.5: se rechaza estrictamente https://, ftp://, etc.)
-    String scheme = target.substring(0, 7);
-    scheme.toLowerCase();
-    if (scheme != "http://") {
-        return false;
-    }
-    String authority = target.substring(7);
-
-    // 2. Delimitadores según tipo de cabecera
-    if (isOriginHeader) {
-        // H-01.1: Un Origin válido NO puede contener '/', '?' ni '#' (RFC 6454)
-        if (authority.indexOf('/') != -1 || authority.indexOf('?') != -1 || authority.indexOf('#') != -1) {
-            return false;
-        }
-    } else {
-        // Para Referer, extraer la autoridad previa a la ruta, query o fragmento
-        int slashIdx = authority.indexOf('/');
-        if (slashIdx != -1) authority = authority.substring(0, slashIdx);
-        int questionIdx = authority.indexOf('?');
-        if (questionIdx != -1) authority = authority.substring(0, questionIdx);
-        int hashIdx = authority.indexOf('#');
-        if (hashIdx != -1) authority = authority.substring(0, hashIdx);
-    }
-
-    // 3. Rechazar caracteres de control (< 33), no-ASCII (> 126), espacios, userinfo (@) o corchetes IPv6 (H-01.3)
-    if (authority.length() == 0) {
-        return false;
-    }
-    for (unsigned int i = 0; i < authority.length(); ++i) {
-        const char c = authority.charAt(i);
-        if (c < 33 || c > 126 || c == '@' || c == '[' || c == ']') {
-            return false;
-        }
-    }
-
-    // 4. Separación de Host y Puerto con validación estricta (H-01.6)
-    String originHost = "";
-    String originPort = "";
-    int colonIdx = authority.indexOf(':');
-
-    if (colonIdx != -1) {
-        originHost = authority.substring(0, colonIdx);
-        originPort = authority.substring(colonIdx + 1);
-
-        // Puerto presente debe tener dígitos válidos y ser estrictamente 80
-        if (originPort.length() == 0) {
-            return false; // Delimitador ":" presente sin dígitos (ej. "http://192.168.1.50:")
-        }
-        for (unsigned int i = 0; i < originPort.length(); ++i) {
-            if (!isDigit(originPort.charAt(i))) {
-                return false; // Caracteres no numéricos en puerto (ej. "http://192.168.1.50:80a", ":+80")
-            }
-        }
-        // Exigir representación canónica exacta "80" (rechaza 8080, 080 con ceros a la izquierda, etc.)
-        if (originPort != "80") {
-            return false;
-        }
-    } else {
-        originHost = authority; // Puerto implícito 80
-    }
-
-    if (originHost.length() == 0) {
-        return false;
-    }
-
-    // H-01.2 & H-01.7: Normalización a minúsculas y validación contra la IP local real asignada
-    originHost.toLowerCase();
-    String localIp = WiFi.localIP().toString();
-    if (localIp.length() > 0 && localIp != "0.0.0.0" && originHost.equals(localIp)) {
-        return true;
-    }
-
-    return false;
-}
-
-static bool isOriginAllowed() {
-    const bool hasOrigin = server.hasHeader("Origin");
-    const bool hasReferer = server.hasHeader("Referer");
-
-    if (!hasOrigin && !hasReferer) {
-        // Clientes REST legítimos sin navegador (cURL, scripts Python, Home Assistant)
-        // La protección contra CSRF se garantiza mediante la ausencia total de credenciales ambientales
-        // (sin cookies ni sesiones) y la obligatoriedad de presentar el token secreto Bearer en cada petición.
-        return true;
-    }
-
-    // Si Origin está presente, DEBE ser rigurosamente válido
-    if (hasOrigin) {
-        if (!validateSingleAuthority(server.header("Origin"), true)) {
-            return false;
-        }
-    }
-
-    // Si Referer está presente, DEBE ser rigurosamente válido
-    if (hasReferer) {
-        if (!validateSingleAuthority(server.header("Referer"), false)) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-static void handleRoot() {
-    String html = F("<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-                    "<meta name='viewport' content='width=device-width,initial-scale=1.0'>"
-                    "<title>Smart FloraCare Dashboard</title><style>"
-                    "body{font-family:sans-serif;text-align:center;background:#f0f4f8;margin:30px;}"
-                    ".card{background:white;padding:24px;border-radius:12px;display:inline-block;box-shadow:0 4px 12px rgba(0,0,0,0.1);max-width:380px;}"
-                    ".metric{font-size:48px;font-weight:bold;color:#1e4620;margin:12px 0;}"
-                    ".btn{background:#2e7d32;color:white;border:none;padding:12px 24px;border-radius:6px;font-size:16px;cursor:pointer;font-weight:bold;}"
-                    ".btn:hover{background:#1b5e20;}"
-                    ".warn{color:#c62828;font-weight:bold;}"
-                    "</style></head><body><div class='card'>"
-                    "<h2>Smart FloraCare Dashboard</h2>"
-                    "<div class='metric'>");
-    if (sensorStatus == SensorHealth::OK) {
-        html += String(currentMoisturePct) + "%";
-    } else {
-        html += "SENSOR ERROR";
-    }
-    html += F("</div><p>Dep&oacute;sito: <b>");
-    html += waterLevelOk ? "Nivel Adecuado (OK)" : "<span class='warn'>VAC&Iacute;O - RELLENAR</span>";
-    html += F("</b></p><p>Estado Bomba: <b>");
-    if (controller.getState() == ControllerState::FAULT) {
-        html += "<span class='warn'>BLOQUEADO POR FALLO</span>";
-    } else if (controller.isPumpActive()) {
-        html += "<span style='color:#1565c0'>REGANDO...</span>";
-    } else {
-        html += "Reposo";
-    }
-    html += F("</b></p>");
-
-    if (isDefaultOrInsecureToken(API_AUTH_TOKEN)) {
-        html += F("<p class='warn'>[Control remoto deshabilitado: configure un token seguro en Credentials.h]</p>");
-    } else {
-        html += F("<form method='POST' action='/api/water' style='margin-top:16px;'>"
-                  "<input type='password' name='token' placeholder='Token de autorizaci&oacute;n' required "
-                  "style='padding:8px;border-radius:4px;border:1px solid #ccc;width:80%;max-width:240px;margin-bottom:10px;'><br>"
-                  "<button type='submit' class='btn'>Regar 3 Segundos (Manual)</button>"
-                  "</form>");
-    }
-
-    html += F("</div></body></html>");
-    server.send(200, "text/html", html);
-}
-
-// --- GESTIÓN DE TASA DE INTENTOS FALLIDOS (RATE LIMITING NO BLOQUEANTE) ---
-static uint32_t lastFailedAuthMs = 0;
-
-static void handleApiWater() {
-    const uint32_t nowMs = millis();
-
-    // 1. Verificación obligatoria de método HTTP POST con cabecera Allow (REQ-17, H-02)
-    if (server.method() != HTTP_POST) {
-        server.sendHeader("Allow", "POST");
-        server.send(405, "application/json", F("{\"error\":\"Method Not Allowed. Use POST.\"}"));
-        return;
-    }
-
-    // 2. Control de tasa no bloqueante ante fallos previos de autenticación
-    // Si hubo un fallo en los últimos 1000 ms, responder con 429 sin bloquear la CPU ni el loop()
-    if (lastFailedAuthMs > 0 && (static_cast<uint32_t>(nowMs - lastFailedAuthMs) < 1000)) {
-        server.send(429, "application/json", F("{\"error\":\"Too Many Requests. Authentication rate limit active. Please wait.\"}"));
-        return;
-    }
-
-    // 3. Inspección temprana de tamaño de carga (previene DoS por consumo de Heap)
-    if (server.clientContentLength() > 256) {
-        server.send(413, "application/json", F("{\"error\":\"Payload Too Large. Request body exceeds maximum allowed size.\"}"));
-        return;
-    }
-
-    // 4. Verificación de seguridad del token configurado en firmware
-    // Si el token es un placeholder o no cumple con la longitud mínima, se deshabilita la API
-    if (isDefaultOrInsecureToken(API_AUTH_TOKEN)) {
-        server.send(403, "application/json", F("{\"error\":\"Forbidden. Remote API disabled: Insecure or default token configured in Credentials.h\"}"));
-        return;
-    }
-
-    // 5. Verificación canónica de origen (Defensa en profundidad contra CSRF en navegadores)
-    if (!isOriginAllowed()) {
-        server.send(403, "application/json", F("{\"error\":\"Forbidden. Cross-Origin request blocked.\"}"));
-        return;
-    }
-
-    // 6. Extracción y normalización de credenciales (Formulario vs Header Authorization)
-    String formToken = server.arg("token");
-    String authHeader = server.header("Authorization");
-    String headerToken = "";
-    bool hasHeaderAuth = false;
-
-    if (authHeader.length() > 0) {
-        if (authHeader.length() > (MAX_TOKEN_LEN + 16)) {
-            server.send(400, "application/json", F("{\"error\":\"Bad Request. Authorization header exceeds maximum allowed length.\"}"));
-            return;
-        }
-        if (authHeader.startsWith("Bearer ")) {
-            headerToken = authHeader.substring(7);
-            headerToken.trim();
-            hasHeaderAuth = true;
-        } else {
-            // Esquema de autorización inválido (p. ej. Basic o Bearer sin espacio)
-            server.send(401, "application/json", F("{\"error\":\"Unauthorized. Invalid Authorization scheme. Expected 'Bearer <token>'.\"}"));
-            return;
-        }
-    }
-
-    bool hasFormAuth = (formToken.length() > 0);
-
-    // Detección de credenciales contradictorias si se envían simultáneamente por formulario y cabecera
-    if (hasFormAuth && hasHeaderAuth) {
-        if (formToken != headerToken) {
-            server.send(400, "application/json", F("{\"error\":\"Bad Request. Conflicting credentials provided in form and Authorization header.\"}"));
-            return;
-        }
-    }
-
-    String chosenToken = hasHeaderAuth ? headerToken : formToken;
-
-    // Validación de presencia de token
-    if (chosenToken.length() == 0) {
-        server.send(401, "application/json", F("{\"error\":\"Unauthorized. Missing authentication token.\"}"));
-        return;
-    }
-
-    // Límite defensivo de longitud de entrada
-    if (chosenToken.length() > MAX_TOKEN_LEN) {
-        server.send(400, "application/json", F("{\"error\":\"Bad Request. Token exceeds maximum allowed length.\"}"));
-        return;
-    }
-
-    // 7. Comparación en tiempo constante contra el secreto configurado
-    const bool authorized = safeConstantTimeEquals(chosenToken.c_str(), API_AUTH_TOKEN);
-    if (!authorized) {
-        // Registrar marca de tiempo del fallo para rate limiting no bloqueante (CERO BLOQUEO DEL LOOP)
-        lastFailedAuthMs = nowMs;
-        server.send(401, "application/json", F("{\"error\":\"Unauthorized. Invalid token.\"}"));
-        return;
-    }
-
-    // 8. Validación centralizada inmutable a través del controlador de riego
-    bool accepted = controller.requestWatering(IrrigationSource::REMOTE_WEB,
-                                              nowMs,
-                                              waterLevelOk,
-                                              sensorStatus,
-                                              currentMoisturePct);
-
-    if (accepted) {
-        // Redireccionar al dashboard (para formularios de navegador) o responder con 303
-        server.sendHeader("Location", "/");
-        server.send(303);
-    } else {
-        // Si fue rechazada por el controlador, responder con 409 Conflict y estado detallado
-        String err = F("{\"error\":\"Watering request rejected by safety controller\",\"state\":");
-        err += static_cast<int>(controller.getState());
-        err += F(",\"lastFault\":");
-        err += static_cast<int>(controller.getLastFault());
-        err += F("}");
-        server.send(409, "application/json", err);
-    }
-}
-
-// ============================================================================
-// CONFIGURACIÓN INICIAL (SETUP)
+// SETUP Y CONFIGURACIÓN INICIAL DEL SISTEMA
 // ============================================================================
 void setup() {
-    Serial.begin(115200);
-
-    // Configurar Task Watchdog Timer (4000 ms) para proteger contra bloqueos (H-04)
-    esp_task_wdt_config_t twdt_config = {
-        .timeout_ms = 4000,
-        .idle_core_mask = (1 << 0),
-        .trigger_panic = true
-    };
-    if (esp_task_wdt_reconfigure(&twdt_config) != ESP_OK) {
-        esp_task_wdt_init(&twdt_config);
-    }
-    esp_task_wdt_add(NULL);
-
+    // 1. INICIALIZACIÓN INMEDIATA DEL ACTUADOR A ESTADO SEGURO (H-150)
     pinMode(PIN_DRIVER_BOMBA, OUTPUT);
-    digitalWrite(PIN_DRIVER_BOMBA, LOW); // Estado seguro incondicional al arranque
+    digitalWrite(PIN_DRIVER_BOMBA, LOW);
+    s_orderedPumpLevel = false;
 
     pinMode(PIN_BUZZER, OUTPUT);
     digitalWrite(PIN_BUZZER, LOW);
 
+    // 2. CONFIGURACIÓN DE ENTRADAS DIGITALES (H-148)
     pinMode(PIN_FLOTADOR_AGUA, INPUT_PULLUP);
     pinMode(PIN_BOTON_MANUAL, INPUT_PULLUP);
 
+    analogReadResolution(12);
+    analogSetAttenuation(ADC_11db);
+
+    Serial.begin(115200);
+    Serial.println(F("\n[INIT] Inicializando Smart FloraCare v1.2.1 (V4.18)..."));
+
+    // 3. WATCHDOG DE TAREA (TWDT) A 4000 MS
+    esp_task_wdt_config_t twdt_cfg = {
+        .timeout_ms = 4000,
+        .idle_core_mask = (1 << 0),
+        .trigger_panic = true
+    };
+    esp_task_wdt_init(&twdt_cfg);
+    esp_task_wdt_add(NULL);
+
+    // 4. AUTO-VERIFICACIÓN CRIPTOGRÁFICA EN BOOT (RFC 4231)
+    if (!runCryptoSelfTest()) {
+        Serial.println(F("[ERROR CRÍTICO] Falló el test criptográfico HMAC-SHA256. Sistema detenido."));
+        while (true) {
+            digitalWrite(PIN_DRIVER_BOMBA, LOW);
+            delay(100);
+        }
+    }
+    Serial.println(F("[OK] Vector normativo HMAC-SHA256 verificado exitosamente."));
+
+    // 5. INICIALIZACIÓN DE DISPLAY OLED
     Wire.begin(21, 22);
-    if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
-        Serial.println(F("[AVISO] Falla inicializando OLED. Operando sin pantalla."));
-        oledAvailable = false;
-    } else {
+    Wire.setClock(400000);
+    if (display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
         oledAvailable = true;
+        display.clearDisplay();
+        display.display();
     }
 
-    // Conexión WiFi con límite de reintentos (solo si se definieron credenciales en Credentials.h)
+    // 6. INICIALIZACIÓN DE TABLAS DE SEGURIDAD
+    for (size_t i = 0; i < CHALLENGE_POOL_SIZE; ++i) {
+        s_challengePool[i].valid = false;
+        s_challengePool[i].consumed = true;
+        s_challengePool[i].failedAttempts = 0;
+    }
+    for (size_t i = 0; i < AUTH_FAIL_CACHE_SIZE; ++i) {
+        s_ipRateLimits[i].active = false;
+        s_ipRateLimits[i].lastAccessMs = 0;
+    }
+
+    // 7. CONEXIÓN WI-FI Y SERVIDOR HTTP
     if (WIFI_ENABLED && strlen(WIFI_SSID) > 0) {
-        Serial.print(F("[WIFI] Conectando a red local... "));
         WiFi.mode(WIFI_STA);
         WiFi.begin(WIFI_SSID, WIFI_PASS);
-        uint8_t retries = 0;
-        while (WiFi.status() != WL_CONNECTED && retries < 15) {
-            delay(300);
-            retries++;
+        Serial.print(F("[WIFI] Conectando"));
+        uint32_t wifiStart = millis();
+        while (WiFi.status() != WL_CONNECTED && (millis() - wifiStart < 8000)) {
+            esp_task_wdt_reset();
+            delay(250);
+            Serial.print('.');
         }
+        Serial.println();
+
         if (WiFi.status() == WL_CONNECTED) {
-            Serial.print(F("Conectado. IP: "));
+            Serial.print(F("[WIFI] Conectado. IP: "));
             Serial.println(WiFi.localIP());
-            const char* headerKeys[] = {"Authorization", "Origin", "Host", "Referer"};
-            server.collectHeaders(headerKeys, 4);
-            server.on("/", HTTP_GET, handleRoot);
-            server.on("/api/water", HTTP_ANY, handleApiWater);
-            server.begin();
-            if (isDefaultOrInsecureToken(API_AUTH_TOKEN)) {
-                Serial.println(F("[SEGURIDAD] AVISO: Token de API inseguro o ausente. /api/water rechazara peticiones (HTTP 403)."));
-            }
+            s_httpServer.begin(80);
+            Serial.println(F("[HTTP] Servidor cooperativo iniciado en puerto 80."));
         } else {
-            Serial.println(F("Fallo de conexion. Operando en modo local autonomo."));
+            Serial.println(F("[WIFI] No conectado. Modo autónomo local activo."));
         }
     } else {
-        Serial.println(F("[SEGURIDAD] Sin Credentials.h configurado o SSID vacio. Wi-Fi y API remota deshabilitados."));
         WiFi.mode(WIFI_OFF);
+        Serial.println(F("[WIFI] Deshabilitado: sin credenciales configuradas (modo autónomo)"));
     }
 
-    // Muestreo inicial
-    uint16_t raw = sampleAnalogFast();
-    SensorValidator::calculateMoisturePercent(raw, ESP32_CALIBRATION, currentMoisturePct, sensorStatus);
+    // 8. PRIMERA LECTURA SENSORIAL
+    const uint16_t initialRaw = sampleAnalogFast();
+    FloraCare::SensorValidator::calculateMoisturePercent(
+        initialRaw, ESP32_CALIBRATION, currentMoisturePct, sensorStatus
+    );
     waterLevelOk = (digitalRead(PIN_FLOTADOR_AGUA) == LOW);
+
+    updateDisplay("INICIO OK");
+    tone(PIN_BUZZER, 1000, 100);
+    esp_task_wdt_reset();
 }
 
 // ============================================================================
-// TELEMETRÍA SERIE PERIÓDICA ATÓMICA Y NO BLOQUEANTE (ORDEN DE TRABAJO UART)
-// ============================================================================
-static void emitPeriodicTelemetry(uint32_t nowMs) {
-    static uint32_t lastTelemetryMs = 0;
-    if (static_cast<uint32_t>(nowMs - lastTelemetryMs) < 1000) {
-        return;
-    }
-    lastTelemetryMs = nowMs;
-
-    // Búfer local en pila (0 reserva dinámica en heap, 64 bytes acotados)
-    char buf[64];
-    int len = 0;
-
-    if (controller.getState() == ControllerState::FAULT) {
-        const char* faultStr = "OTHER";
-        switch (controller.getLastFault()) {
-            case FaultReason::NO_WATER_LEVEL:       faultStr = "NO_WATER_LEVEL"; break;
-            case FaultReason::MAX_TIMEOUT_EXCEEDED: faultStr = "TIMEOUT"; break;
-            case FaultReason::SENSOR_MALFUNCTION:   faultStr = "SENSOR_ERR"; break;
-            case FaultReason::INVALID_REQUEST:      faultStr = "INVALID_REQ"; break;
-            default:                                faultStr = "NONE"; break;
-        }
-        len = snprintf(buf, sizeof(buf), "[STATE] FAULT | FAULT:%s | %s | %s\n",
-                       faultStr,
-                       waterLevelOk ? "WATER:OK" : "WATER:LOW",
-                       controller.isPumpActive() ? "PUMP:ON" : "PUMP:OFF");
-    } else {
-        const char* stateStr = "IDLE";
-        switch (controller.getState()) {
-            case ControllerState::IDLE:       stateStr = "IDLE"; break;
-            case ControllerState::VALIDATING: stateStr = "VALIDATING"; break;
-            case ControllerState::WATERING:   stateStr = "WATERING"; break;
-            case ControllerState::STOPPED:    stateStr = "STOPPED"; break;
-            case ControllerState::RECOVERY:   stateStr = "RECOVERY"; break;
-            default:                          stateStr = "IDLE"; break;
-        }
-        if (sensorStatus == SensorHealth::OK) {
-            len = snprintf(buf, sizeof(buf), "[STATE] %s | MOIST:%u | %s | %s\n",
-                           stateStr,
-                           static_cast<unsigned int>(currentMoisturePct),
-                           waterLevelOk ? "WATER:OK" : "WATER:LOW",
-                           controller.isPumpActive() ? "PUMP:ON" : "PUMP:OFF");
-        } else {
-            len = snprintf(buf, sizeof(buf), "[STATE] %s | MOIST:ERR | %s | %s\n",
-                           stateStr,
-                           waterLevelOk ? "WATER:OK" : "WATER:LOW",
-                           controller.isPumpActive() ? "PUMP:ON" : "PUMP:OFF");
-        }
-    }
-
-    // Descarte atómico seguro: Si el búfer serie no tiene espacio suficiente para
-    // la trama ENTERA (incluido fin de línea), abortar inmediatamente sin transmitir
-    // nada. Garantiza 0 µs de bloqueo y evita fragmentaciones de tramas.
-    if (len <= 0 || len >= static_cast<int>(sizeof(buf)) || Serial.availableForWrite() < len) {
-        return;
-    }
-
-    Serial.write(reinterpret_cast<const uint8_t*>(buf), static_cast<size_t>(len));
-}
-
-// ============================================================================
-// BUCLE PRINCIPAL DETERMINISTA Y NO BLOQUEANTE
+// BUCLE PRINCIPAL DE EJECUCIÓN (LOOP DE 3 FASES PRIORIZADAS)
 // ============================================================================
 void loop() {
-    esp_task_wdt_reset(); // Alimentar Task Watchdog de hardware en cada iteración
+    esp_task_wdt_reset();
     const uint32_t nowMs = millis();
 
-    // 0. GESTIÓN SÍNCRONA DE SERVICIOS DE RED HTTP
-    if (WiFi.status() == WL_CONNECTED) {
-        server.handleClient();
+    // ------------------------------------------------------------------------
+    // FASE 1: SEGURIDAD FÍSICA INMEDIATA Y CORTE BRUTO DE NIVEL (H-149)
+    // ------------------------------------------------------------------------
+    const bool rawWaterOk = (digitalRead(PIN_FLOTADOR_AGUA) == LOW);
+    if (!rawWaterOk) {
+        // Orden de corte de seguridad en firmware sobre el actuador
+        applyPumpActuatorCommand(false);
+        controller.stop(FloraCare::StopReason::WATER_DEPLETED, nowMs);
     }
 
-    // 1. TAREA CRÍTICA: Antirrebote e integración temporal de boya (REQ-07, ACT-05.3a)
+    // Filtro antirrebote e integrador temporal de boya (REQ-07, ACT-05.3a)
     static FloraCare::FloatSwitchDebouncer floatDebouncer(digitalRead(PIN_FLOTADOR_AGUA) == LOW);
-    waterLevelOk = floatDebouncer.update(digitalRead(PIN_FLOTADOR_AGUA) == LOW, nowMs);
+    waterLevelOk = floatDebouncer.update(rawWaterOk, nowMs);
 
-    // Auto-recuperación de FAULT ante normalización física verificable (H-01 Opción A)
-    if (controller.getState() == ControllerState::FAULT) {
-        controller.attemptRecovery(nowMs, waterLevelOk, sensorStatus);
-    }
+    // Nivel consolidado de agua ultra-seguro (H-155):
+    // Si la lectura física bruta cae, se propaga inmediatamente sin esperar el debounce
+    const bool safeWaterLevel = rawWaterOk && waterLevelOk;
 
-    // 2. MUESTREO DE HUMEDAD: Cada 1000ms
-    if (static_cast<uint32_t>(nowMs - lastSampleTimeMs) >= 1000) {
+    // Lectura periódica y acotada del sensor analógico de suelo (H-159)
+    if (nowMs - lastSampleTimeMs >= 100) {
         lastSampleTimeMs = nowMs;
-        uint16_t rawAdc = sampleAnalogFast();
-        SensorValidator::calculateMoisturePercent(rawAdc, ESP32_CALIBRATION, currentMoisturePct, sensorStatus);
+        const uint16_t rawAdc = sampleAnalogFast();
+        FloraCare::SensorValidator::calculateMoisturePercent(
+            rawAdc, ESP32_CALIBRATION, currentMoisturePct, sensorStatus
+        );
 
-        // Si el sensor falla durante un ciclo automático, parar inmediatamente (H-05)
-        if (sensorStatus != SensorHealth::OK &&
-            controller.getState() == ControllerState::WATERING &&
-            controller.getActiveSource() == IrrigationSource::AUTO_CYCLE) {
-            controller.stop(StopReason::SENSOR_FAULT, nowMs);
-        }
-
-        // Intento automático de riego si se cumplen las condiciones
-        if (sensorStatus == SensorHealth::OK && currentMoisturePct <= IRRIGATION_CFG.autoStartMoisturePct) {
-            controller.requestWatering(IrrigationSource::AUTO_CYCLE,
-                                      nowMs,
-                                      waterLevelOk,
-                                      sensorStatus,
-                                      currentMoisturePct);
+        // Si el sensor analógico falla, se comanda el apagado universal
+        if (sensorStatus != FloraCare::SensorHealth::OK && controller.isPumpActive()) {
+            applyPumpActuatorCommand(false);
+            controller.stop(FloraCare::StopReason::SENSOR_FAULT, nowMs);
         }
     }
 
-    // 3. ENTRADA DEL BOTÓN FÍSICO CON DETECCIÓN DE FLANCO Y REARME DE FAULT (H-01, H-06)
-    static bool buttonStableState = HIGH;
+    // ------------------------------------------------------------------------
+    // FASE 2: GESTIÓN DE ENTRADAS LOCALES Y CONTROLADOR DE DOMINIO FSM (H-156)
+    // ------------------------------------------------------------------------
+    // Intento explícito de recuperación condicionada ante retorno a la normalidad
+    if (controller.getState() == FloraCare::ControllerState::FAULT) {
+        controller.attemptRecovery(nowMs, safeWaterLevel, sensorStatus);
+    }
+
+    // Activación autónoma periódica según umbral de humedad de suelo (H-156)
+    if (!controller.isPumpActive() && safeWaterLevel && sensorStatus == FloraCare::SensorHealth::OK) {
+        if (!s_autoInhibitTracker.isInhibited() && currentMoisturePct <= IRRIGATION_CFG.autoStartMoisturePct) {
+            const bool reqOk = controller.requestWatering(
+                FloraCare::IrrigationSource::AUTO_CYCLE,
+                nowMs,
+                safeWaterLevel,
+                sensorStatus,
+                currentMoisturePct
+            );
+            if (reqOk) {
+                s_currentWateringSource = FloraCare::IrrigationSource::AUTO_CYCLE;
+            }
+        }
+    }
+
+    // Gestión del botón físico manual
     const bool currentBtnReading = digitalRead(PIN_BOTON_MANUAL);
     if (currentBtnReading != lastButtonState) {
         lastButtonDebounceMs = nowMs;
         lastButtonState = currentBtnReading;
     }
-    if (static_cast<uint32_t>(nowMs - lastButtonDebounceMs) >= 40) {
-        if (currentBtnReading != buttonStableState) {
-            buttonStableState = currentBtnReading;
-            if (buttonStableState == LOW) { // Flanco descendente
-                if (controller.getState() == ControllerState::FAULT) {
-                    controller.resetFault(nowMs, waterLevelOk, sensorStatus);
-                } else if (controller.getState() == ControllerState::IDLE) {
-                    controller.requestWatering(IrrigationSource::MANUAL_BUTTON,
-                                              nowMs,
-                                              waterLevelOk,
-                                              sensorStatus,
-                                              currentMoisturePct);
+
+    if ((nowMs - lastButtonDebounceMs) > 50) {
+        static bool s_buttonStableState = HIGH;
+        if (currentBtnReading != s_buttonStableState) {
+            s_buttonStableState = currentBtnReading;
+            if (s_buttonStableState == LOW) { // Pulsación activa a tierra
+                if (controller.getState() == FloraCare::ControllerState::FAULT) {
+                    // Procedimiento explícito de rearme local ante fallos bloqueantes (ej. MAX_TIMEOUT_EXCEEDED) (H-156)
+                    const bool rearmed = controller.resetFault(nowMs, safeWaterLevel, sensorStatus);
+                    if (rearmed) {
+                        tone(PIN_BUZZER, 1200, 100);
+                    }
+                } else {
+                    // Ráfaga manual supervisada presencial (H-156)
+                    const bool reqOk = controller.requestWatering(
+                        FloraCare::IrrigationSource::MANUAL_BUTTON,
+                        nowMs,
+                        safeWaterLevel,
+                        sensorStatus,
+                        currentMoisturePct
+                    );
+                    if (reqOk) {
+                        s_currentWateringSource = FloraCare::IrrigationSource::MANUAL_BUTTON;
+                    }
                 }
             }
         }
     }
 
-    // 4. ACTUALIZACIÓN DEL CONTROLADOR CENTRALIZADO DE RIEGO
-    const bool wasWatering = controller.isPumpActive();
-    const bool pumpShouldRun = controller.update(nowMs, waterLevelOk, sensorStatus, currentMoisturePct);
-    digitalWrite(PIN_DRIVER_BOMBA, pumpShouldRun ? HIGH : LOW);
+    // Actualización de la FSM y mando exclusivo al actuador
+    const bool pumpShouldRun = controller.update(nowMs, safeWaterLevel, sensorStatus, currentMoisturePct);
+    applyPumpActuatorCommand(pumpShouldRun);
 
-    if (wasWatering && !pumpShouldRun && controller.getState() == ControllerState::FAULT) {
-        if (controller.getLastStopReason() == StopReason::SAFETY_TIMEOUT) {
-            Serial.println(F("[FAULT] SAFETY_TIMEOUT_WATCHDOG (25000 ms) -> MAX_TIMEOUT_EXCEEDED"));
-        } else if (controller.getLastStopReason() == StopReason::AUTO_MAX_DURATION_REACHED) {
-            Serial.println(F("[FAULT] AUTO_MAX_DURATION_REACHED (20000 ms) -> MAX_TIMEOUT_EXCEEDED"));
-        }
-    }
+    // Actualización determinista del interbloqueo preventivo de autorriego (H-156)
+    s_autoInhibitTracker.update(
+        controller.getState(),
+        controller.getLastStopReason(),
+        s_currentWateringSource,
+        currentMoisturePct,
+        IRRIGATION_CFG.autoStartMoisturePct
+    );
 
-    // 5. GESTIÓN NO BLOQUEANTE DEL BUZZER EN ESTADO DE ALERTA
-    if (!waterLevelOk) {
-        if (static_cast<uint32_t>(nowMs - lastBeepTimeMs) >= 6000) {
+    // Alarma acústica no bloqueante ante tanque vacío
+    if (!safeWaterLevel) {
+        if (nowMs - lastBeepTimeMs >= 3000) {
             lastBeepTimeMs = nowMs;
             tone(PIN_BUZZER, 850, 100);
         }
     }
 
-    // 6. ACTUALIZACIÓN DE PANTALLA OLED CADA 500ms (INDICACIÓN FIDEDIGNA DE ESTADO REAL)
-    if (static_cast<uint32_t>(nowMs - lastDisplayTimeMs) >= 500) {
+    // ------------------------------------------------------------------------
+    // FASE 3: PRESENTACIÓN OLED Y SERVIDOR HTTP COOPERATIVO (H-151, H-153)
+    // ------------------------------------------------------------------------
+    if (nowMs - lastDisplayTimeMs >= 250) {
         lastDisplayTimeMs = nowMs;
-        const char* msg = "OPTIMO";
-        if (controller.getState() == ControllerState::FAULT) {
-            if (controller.getLastFault() == FaultReason::NO_WATER_LEVEL) {
-                msg = "SIN AGUA!";
-            } else if (controller.getLastFault() == FaultReason::SENSOR_MALFUNCTION) {
-                msg = "SENSOR ERR";
-            } else if (controller.getLastFault() == FaultReason::MAX_TIMEOUT_EXCEEDED) {
-                msg = (controller.getLastStopReason() == StopReason::SAFETY_TIMEOUT)
-                      ? "WDT 25S ERR"
-                      : "TIMEOUT 20S";
-            } else {
-                msg = "FALLO SEGURO";
-            }
-        } else if (!waterLevelOk) {
-            msg = "SIN AGUA!";
-        } else if (controller.isPumpActive()) {
-            msg = "REGANDO...";
-        } else if (sensorStatus != SensorHealth::OK) {
-            msg = "SENSOR ERR";
-        } else if (currentMoisturePct <= IRRIGATION_CFG.autoStartMoisturePct) {
-            msg = "SUELO SECO";
+        const char* msg = "REPOSO";
+        if (controller.isPumpActive()) {
+            msg = (controller.getActiveSource() == FloraCare::IrrigationSource::AUTO_CYCLE) ? "RIEGO AUTO" : "RIEGO MANUAL";
+        } else if (!safeWaterLevel) {
+            msg = "SIN AGUA";
+        } else if (sensorStatus != FloraCare::SensorHealth::OK) {
+            msg = "ERR SENSOR";
         }
         updateDisplay(msg);
     }
 
-    // 7. TELEMETRÍA SERIE PERIÓDICA NO BLOQUEANTE (1000ms, PRIORIDAD BAJA)
-    emitPeriodicTelemetry(nowMs);
+    // Sondeo de la pila de red (acotada internamente a <= 150 ms de deadline)
+    if (WiFi.status() == WL_CONNECTED) {
+        pollHttpServer(safeWaterLevel, sensorStatus, currentMoisturePct);
+    }
+
+    // Chequeo de seguridad de cierre de ciclo
+    if (digitalRead(PIN_FLOTADOR_AGUA) == HIGH && s_orderedPumpLevel) {
+        applyPumpActuatorCommand(false);
+    }
 }

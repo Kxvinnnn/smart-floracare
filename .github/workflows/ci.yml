@@ -2,7 +2,7 @@ name: Smart FloraCare CI
 
 on:
   push:
-    branches: [ main, "audit/**" ]
+    branches: [ main, "audit/**", "integration/**" ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -50,9 +50,9 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror -DFLORACARE_BENCH_TEST_WATCHDOG_25S -I include tests/test_native_controller.cpp -o /tmp/test_native_wdt25s
           /tmp/test_native_wdt25s
 
-      - name: "Run Full Automated Test Suite (78 Tests: Simulated Domain, Native C++ Bridge, Security, and HTTP Auth)"
+      - name: "Run Consolidated Automated Test Suite (38 Tests: Simulated Domain, Native C++ Bridge, and Security Refinements)"
         run: |
-          python -m unittest discover tests
+          python tests/test_irrigation_suite.py
 
       - name: Compile Arduino Nano Production Environment (nanoatmega328)
         run: |

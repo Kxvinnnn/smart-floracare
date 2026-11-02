@@ -669,5 +669,249 @@ class TestSmartFloraCareComprehensive(unittest.TestCase):
                 self.assertIn("StopReason::SAFETY_TIMEOUT verified", out_wdt)
 
 
+class TestV418RegressionRefinements(unittest.TestCase):
+    """
+    Pruebas de regresión unitarias para las correcciones de los hallazgos H-156 a H-160:
+    - H-156: Rearme explícito reset_fault() ante MAX_TIMEOUT_EXCEEDED vs rechazo de attempt_recovery().
+    - H-157: Validación sintáctica estricta hexadecimal en nonce y HMAC.
+    - H-158: Cálculo de antigüedad LRU con aritmética unsigned ante millis() rollover.
+    - H-160: Parser estricto de Content-Length, rechazo de Transfer-Encoding y residuo de cuerpo.
+    """
+
+    def test_h156_rearme_explicito_max_timeout_exceeded(self):
+        ctrl = MockIrrigationController()
+        now = 1000
+
+        # Iniciar ciclo y forzar disparo de maxSafetyWatchdogMs (25s)
+        self.assertTrue(ctrl.request_watering(IrrigationSource.AUTO_CYCLE, now, True, SensorHealth.OK, 10))
+        now += ctrl.watchdog_ms + 100
+        self.assertFalse(ctrl.update(now, True, SensorHealth.OK, 10))
+        self.assertEqual(ctrl.state, ControllerState.FAULT)
+        self.assertEqual(ctrl.last_fault, FaultReason.MAX_TIMEOUT_EXCEEDED)
+
+        # attempt_recovery() debe ser rechazado incondicionalmente
+        self.assertFalse(ctrl.attempt_recovery(now + 100, True, SensorHealth.OK))
+        self.assertEqual(ctrl.state, ControllerState.FAULT)
+
+        # reset_fault() debe rechazar si las condiciones físicas son inseguras (sin agua)
+        self.assertFalse(ctrl.reset_fault(now + 200, False, SensorHealth.OK))
+        self.assertEqual(ctrl.state, ControllerState.FAULT)
+
+        # reset_fault() debe rearmar exitosamente con condiciones físicas válidas
+        self.assertTrue(ctrl.reset_fault(now + 300, True, SensorHealth.OK))
+        self.assertEqual(ctrl.state, ControllerState.IDLE)
+        self.assertEqual(ctrl.last_fault, FaultReason.NONE)
+
+        # Tras el rearme, se debe imponer enfriamiento obligatorio (cooldown 5s)
+        self.assertFalse(ctrl.request_watering(IrrigationSource.MANUAL_BUTTON, now + 400, True, SensorHealth.OK, 10))
+        # Superado el cooldown, se permite la operación
+        self.assertTrue(ctrl.request_watering(IrrigationSource.MANUAL_BUTTON, now + 300 + ctrl.cooldown_ms + 10, True, SensorHealth.OK, 10))
+
+    def test_h158_lru_age_calculation_handles_millis_rollover(self):
+        # Simulación de aritmética unsigned uint32: (nowMs - lastAccessMs) & 0xFFFFFFFF
+        def uint32_age(now_ms, last_access_ms):
+            return (now_ms - last_access_ms) & 0xFFFFFFFF
+
+        now_ms = 500  # Justo después de un rollover de 32 bits (ej. 49.7 días)
+        # Ranura A: accedida poco antes del rollover (0xFFFFFF00)
+        slot_a_access = 0xFFFFFF00
+        # Ranura B: accedida después del rollover (200)
+        slot_b_access = 200
+
+        age_a = uint32_age(now_ms, slot_a_access)
+        age_b = uint32_age(now_ms, slot_b_access)
+
+        # 500 - 0xFFFFFF00 en módulo 2^32 = 500 + 256 = 756 ms transcurridos
+        self.assertEqual(age_a, 756)
+        # 500 - 200 = 300 ms transcurridos
+        self.assertEqual(age_b, 300)
+
+        # La política LRU debe desalojar la ranura con mayor antigüedad (Ranura A)
+        self.assertGreater(age_a, age_b)
+
+    def test_h157_strict_hex_validation(self):
+        def is_hex_strict(s, expected_len):
+            if len(s) != expected_len:
+                return False
+            for c in s:
+                if not (('0' <= c <= '9') or ('a' <= c <= 'f') or ('A' <= c <= 'F')):
+                    return False
+            return True
+
+        valid_nonce = "0123456789abcdef0123456789ABCDEF"
+        valid_hmac = "a" * 64
+        invalid_nonce_chars = "0123456789abcdef0123456789ABCDEG"  # 'G' no es hex
+        invalid_nonce_len = "0123456789abcdef"
+        invalid_hmac_chars = ("b" * 63) + "!"
+
+        self.assertTrue(is_hex_strict(valid_nonce, 32))
+        self.assertTrue(is_hex_strict(valid_hmac, 64))
+        self.assertFalse(is_hex_strict(invalid_nonce_chars, 32))
+        self.assertFalse(is_hex_strict(invalid_nonce_len, 32))
+        self.assertFalse(is_hex_strict(invalid_hmac_chars, 64))
+
+    def test_h160_http_content_length_and_residual_guards(self):
+        def parse_content_length_strict(header_lines):
+            content_len = -1
+            for line in header_lines:
+                if line.lower().startswith("transfer-encoding:"):
+                    return "NOT_IMPLEMENTED"
+                if line.lower().startswith("content-length:"):
+                    if content_len != -1:
+                        return "MULTIPLE_HEADERS_BAD_REQUEST"
+                    val = line[15:].strip()
+                    if not val.isdigit():
+                        return "MALFORMED_CHARS_BAD_REQUEST"
+                    parsed = int(val)
+                    if parsed < 0 or parsed > 256:
+                        return "PAYLOAD_TOO_LARGE"
+                    content_len = parsed
+            return content_len
+
+        # Caso válido
+        self.assertEqual(parse_content_length_strict(["Content-Length: 48"]), 48)
+        # Rechazo explícito de signo positivo '+' (RFC 7230 §3.3.2 / RFC 9110 §8.6)
+        self.assertEqual(parse_content_length_strict(["Content-Length: +48"]), "MALFORMED_CHARS_BAD_REQUEST")
+        # Rechazo de sufijos alfanuméricos ("48abc")
+        self.assertEqual(parse_content_length_strict(["Content-Length: 48abc"]), "MALFORMED_CHARS_BAD_REQUEST")
+        # Rechazo de múltiples cabeceras Content-Length (RFC 7230 §3.3.2)
+        self.assertEqual(parse_content_length_strict(["Content-Length: 48", "Content-Length: 48"]), "MULTIPLE_HEADERS_BAD_REQUEST")
+        # Rechazo de Transfer-Encoding
+        self.assertEqual(parse_content_length_strict(["Transfer-Encoding: chunked", "Content-Length: 48"]), "NOT_IMPLEMENTED")
+        # Rechazo de carga excesiva
+        self.assertEqual(parse_content_length_strict(["Content-Length: 300"]), "PAYLOAD_TOO_LARGE")
+
+        # Verificación explícita de guarda de cuerpo residual (H-160)
+        def is_residual_valid(residual_bytes, declared_content_len):
+            if declared_content_len < 0:
+                return False
+            return residual_bytes <= declared_content_len
+
+        self.assertTrue(is_residual_valid(10, 48), "Residual 10 <= 48 debe ser válido")
+        self.assertTrue(is_residual_valid(48, 48), "Residual 48 <= 48 debe ser válido")
+        self.assertFalse(is_residual_valid(50, 48), "Residual 50 > 48 debe ser rechazado")
+
+    def test_h160_http_request_line_strictness(self):
+        """
+        RFC 7230 §3.1.1: request-line = method SP request-target SP HTTP-version CRLF
+        Verifica el rechazo estricto de versiones con sufijos no permitidos (ej. HTTP/1.1foo, HTTP/1.12),
+        así como espacios o tabuladores finales antes de CRLF.
+        """
+        def parse_request_line_version_strict(line):
+            parts = line.split(" ")
+            if len(parts) != 3:
+                return False
+            method, uri, version = parts[0], parts[1], parts[2]
+            if method not in ("GET", "POST"):
+                return False
+            if not uri.startswith("/"):
+                return False
+            if version not in ("HTTP/1.1", "HTTP/1.0"):
+                return False
+            return True
+
+        self.assertTrue(parse_request_line_version_strict("POST /api/water HTTP/1.1"))
+        self.assertTrue(parse_request_line_version_strict("GET / HTTP/1.0"))
+        # Rechazo estricto de espacios o tabs finales tras la versión (RFC 7230 §3.1.1)
+        self.assertFalse(parse_request_line_version_strict("POST /api/water HTTP/1.1 "))
+        self.assertFalse(parse_request_line_version_strict("POST /api/water HTTP/1.1\t"))
+        self.assertFalse(parse_request_line_version_strict("POST /api/water HTTP/1.1foo"))
+        self.assertFalse(parse_request_line_version_strict("POST /api/water HTTP/1.12"))
+        self.assertFalse(parse_request_line_version_strict("POST /api/water HTTP/2.0"))
+
+    def test_h156_auto_inhibit_edge_lifecycle_python(self):
+        """
+        H-156: Validación de ciclo de vida del inhibidor preventivo automático por flancos FSM:
+        1. Disparo de auto-timeout -> enclava auto_inhibit = True.
+        2. Rearme explícito reset_fault() -> regresa a IDLE, pero el inhibidor PERMANECE True.
+        3. Ráfaga REMOTA (REMOTE_WEB) -> culmina con MANUAL_BURST_COMPLETE, pero NO libera el inhibidor.
+        4. Ráfaga MANUAL LOCAL supervisada (MANUAL_BUTTON, 3s) -> culmina con MANUAL_BURST_COMPLETE -> libera el inhibidor.
+        5. Suelo seco puede reiniciar ciclo automático normalmente tras el enfriamiento.
+        """
+        ctrl = MockIrrigationController()
+        now = 1000
+        dry_moisture = 15
+
+        auto_inhibit = False
+        last_state = ControllerState.IDLE
+        active_source = IrrigationSource.NONE
+
+        def update_inhibit_edges(current_state):
+            nonlocal auto_inhibit, last_state
+            # Flanco 1: WATERING -> FAULT por timeout
+            if last_state == ControllerState.WATERING and current_state == ControllerState.FAULT:
+                if ctrl.last_stop_reason in (StopReason.SAFETY_TIMEOUT, StopReason.AUTO_MAX_DURATION_REACHED):
+                    auto_inhibit = True
+            # Flanco 2: WATERING -> IDLE tras ráfaga manual presencial (MANUAL_BUTTON)
+            if last_state == ControllerState.WATERING and current_state == ControllerState.IDLE:
+                if ctrl.last_stop_reason == StopReason.MANUAL_BURST_COMPLETE and active_source == IrrigationSource.MANUAL_BUTTON:
+                    auto_inhibit = False
+            last_state = current_state
+
+        # 1. Iniciar ciclo automático
+        self.assertTrue(ctrl.request_watering(IrrigationSource.AUTO_CYCLE, now, True, SensorHealth.OK, dry_moisture))
+        active_source = IrrigationSource.AUTO_CYCLE
+        update_inhibit_edges(ctrl.state)
+        self.assertFalse(auto_inhibit)
+
+        # 2. Alcanzar timeout automático (20s)
+        now += ctrl.max_auto_ms
+        self.assertFalse(ctrl.update(now, True, SensorHealth.OK, dry_moisture))
+        update_inhibit_edges(ctrl.state)
+        self.assertEqual(ctrl.state, ControllerState.FAULT)
+        self.assertTrue(auto_inhibit, "El inhibidor debe enclavarse tras el timeout automático")
+
+        # 3. Rearme explícito local (reset_fault)
+        now += 500
+        self.assertTrue(ctrl.reset_fault(now, True, SensorHealth.OK))
+        update_inhibit_edges(ctrl.state)
+        self.assertEqual(ctrl.state, ControllerState.IDLE)
+        self.assertTrue(auto_inhibit, "El inhibidor DEBE mantenerse activo tras el rearme en reposo")
+
+        # 4. Superar enfriamiento y solicitar ráfaga remota HTTP (REMOTE_WEB)
+        now += ctrl.cooldown_ms + 100
+        self.assertTrue(ctrl.request_watering(IrrigationSource.REMOTE_WEB, now, True, SensorHealth.OK, dry_moisture))
+        active_source = IrrigationSource.REMOTE_WEB
+        update_inhibit_edges(ctrl.state)
+        self.assertEqual(ctrl.state, ControllerState.WATERING)
+
+        # Completar los 3s de ráfaga remota
+        now += ctrl.manual_ms
+        self.assertFalse(ctrl.update(now, True, SensorHealth.OK, dry_moisture))
+        update_inhibit_edges(ctrl.state)
+        self.assertEqual(ctrl.state, ControllerState.IDLE)
+        self.assertEqual(ctrl.last_stop_reason, StopReason.MANUAL_BURST_COMPLETE)
+        # RESTRICCIÓN H-156: REMOTE_WEB NO LIBERA LA INHIBICIÓN
+        self.assertTrue(auto_inhibit, "REMOTE_WEB jamás debe liberar el interbloqueo preventivo de auto-riego")
+
+        # 5. Superar enfriamiento y ejecutar ráfaga manual LOCAL presencial (MANUAL_BUTTON, 3s)
+        now += ctrl.cooldown_ms + 100
+        self.assertTrue(ctrl.request_watering(IrrigationSource.MANUAL_BUTTON, now, True, SensorHealth.OK, dry_moisture))
+        active_source = IrrigationSource.MANUAL_BUTTON
+        update_inhibit_edges(ctrl.state)
+        self.assertEqual(ctrl.state, ControllerState.WATERING)
+
+        # Avanzar 1s dentro de la ráfaga (sigue regando)
+        now += 1000
+        self.assertTrue(ctrl.update(now, True, SensorHealth.OK, dry_moisture))
+        update_inhibit_edges(ctrl.state)
+
+        # Completar los 3s de ráfaga manual supervisada
+        now += 2000
+        self.assertFalse(ctrl.update(now, True, SensorHealth.OK, dry_moisture))
+        update_inhibit_edges(ctrl.state)
+        self.assertEqual(ctrl.state, ControllerState.IDLE)
+        self.assertEqual(ctrl.last_stop_reason, StopReason.MANUAL_BURST_COMPLETE)
+        # REGLA H-156: MANUAL_BUTTON supervisado local SÍ libera la inhibición
+        self.assertFalse(auto_inhibit, "El inhibidor DEBE liberarse tras completar la ráfaga manual presencial")
+
+        # 6. Tras el enfriamiento, el ciclo automático puede volver a arrancar en suelo seco
+        now += ctrl.cooldown_ms + 100
+        self.assertTrue(ctrl.request_watering(IrrigationSource.AUTO_CYCLE, now, True, SensorHealth.OK, dry_moisture))
+        active_source = IrrigationSource.AUTO_CYCLE
+        update_inhibit_edges(ctrl.state)
+        self.assertEqual(ctrl.state, ControllerState.WATERING)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

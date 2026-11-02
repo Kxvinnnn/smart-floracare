@@ -51,8 +51,12 @@ de credenciales, limitación no bloqueante e integridad del controlador:
 """
 
 import os
+import sys
 import re
 import unittest
+
+sys.path.insert(0, os.path.dirname(__file__))
+
 from test_irrigation_suite import (
     MockIrrigationController,
     ControllerState,
