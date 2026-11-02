@@ -44,6 +44,34 @@ inline const char* findCrlfBounded(const char* start, const char* end) {
 }
 
 /**
+ * Búsqueda acotada del delimitador de fin de cabeceras HTTP "\r\n\r\n" dentro de [start, end).
+ */
+inline const char* findHeaderEndBounded(const char* start, const char* end) {
+    if (!start || !end || start + 3 >= end) return nullptr;
+    for (const char* p = start; p + 3 < end; ++p) {
+        if (p[0] == '\r' && p[1] == '\n' && p[2] == '\r' && p[3] == '\n') {
+            return p;
+        }
+    }
+    return nullptr;
+}
+
+/**
+ * Búsqueda acotada de una subcadena fija dentro de [start, end).
+ */
+inline const char* findSubstringBounded(const char* start, const char* end, const char* sub, size_t subLen) {
+    if (!start || !end || !sub || subLen == 0) return nullptr;
+    if (static_cast<size_t>(end - start) < subLen) return nullptr;
+    const char* lastPossible = end - subLen;
+    for (const char* p = start; p <= lastPossible; ++p) {
+        if (p[0] == sub[0] && memcmp(p, sub, subLen) == 0) {
+            return p;
+        }
+    }
+    return nullptr;
+}
+
+/**
  * Búsqueda acotada de un carácter específico dentro del rango [start, end).
  */
 inline const char* findCharBounded(const char* start, const char* end, char target) {

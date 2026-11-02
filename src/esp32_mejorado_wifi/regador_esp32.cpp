@@ -631,11 +631,12 @@ static void serveApiWater(const char* body, size_t bodyLen,
         return;
     }
 
-    // Parser JSON estricto
+    // Parser JSON estrictamente acotado por bodyLen (H-160)
+    const char* const bodyEnd = body + bodyLen;
     const char* nonceKey = "\"nonce\":\"";
     const char* hmacKey  = "\"hmac\":\"";
-    const char* pNonce = strstr(body, nonceKey);
-    const char* pHmac  = strstr(body, hmacKey);
+    const char* pNonce = FloraCare::findSubstringBounded(body, bodyEnd, nonceKey, 9);
+    const char* pHmac  = FloraCare::findSubstringBounded(body, bodyEnd, hmacKey, 8);
 
     if (!pNonce || !pHmac) {
         recordAuthFailure(clientIp, nowMs);
@@ -643,10 +644,10 @@ static void serveApiWater(const char* body, size_t bodyLen,
         return;
     }
 
-    pNonce += strlen(nonceKey);
-    pHmac  += strlen(hmacKey);
-    const char* nonceEnd = strchr(pNonce, '\"');
-    const char* hmacEnd  = strchr(pHmac, '\"');
+    pNonce += 9;
+    pHmac  += 8;
+    const char* nonceEnd = FloraCare::findCharBounded(pNonce, bodyEnd, '\"');
+    const char* hmacEnd  = FloraCare::findCharBounded(pHmac, bodyEnd, '\"');
 
     if (!nonceEnd || !hmacEnd || (nonceEnd - pNonce != 32) || (hmacEnd - pHmac != 64)) {
         recordAuthFailure(clientIp, nowMs);
@@ -799,7 +800,7 @@ static void pollHttpServer(bool currentWaterOk, FloraCare::SensorHealth currentS
                     s_rxHdrBuf[s_hdrLen] = '\0';
                 }
 
-                const char* hdrEnd = strstr(s_rxHdrBuf, "\r\n\r\n");
+                const char* hdrEnd = FloraCare::findHeaderEndBounded(s_rxHdrBuf, s_rxHdrBuf + s_hdrLen);
                 if (hdrEnd) {
                     const HttpParseResult res = parseHttpHeaderStrict(
                         s_rxHdrBuf, s_hdrLen, s_uri, sizeof(s_uri), s_isGet, s_isPost, s_contentLen
